@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Miau.Core/Miau.Core.csproj" />
+    <Project Path="src/Miau.Engine/Miau.Engine.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Miau.Core.Tests/Miau.Core.Tests.csproj" />
