@@ -4,7 +4,7 @@ Descreva o problema e comportamento resultante. Referencie a issue.
 
 ## Changes
 
-- 
+- Descreva as alterações.
 
 ## Tests
 

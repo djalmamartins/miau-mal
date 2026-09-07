@@ -1,6 +1,7 @@
 # miau-mal
 
-**Inteligência Local.**  
+**Inteligência Local.**
+
 Seu modelo. Suas regras. No seu Windows.
 
 Runtime local de IA para Windows, experimental, construído em C#/.NET 10. O objetivo de longo prazo é executar modelos GGUF via llama.cpp e substituir o Ollama no uso interno, com API local, CLI e aplicação nativa WinUI 3.
