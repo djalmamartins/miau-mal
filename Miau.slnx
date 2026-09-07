@@ -2,4 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/Miau.Core/Miau.Core.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Miau.Core.Tests/Miau.Core.Tests.csproj" />
+  </Folder>
 </Solution>
