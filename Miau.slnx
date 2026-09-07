@@ -8,5 +8,6 @@
   <Folder Name="/tests/">
     <Project Path="tests/Miau.Api.Tests/Miau.Api.Tests.csproj" />
     <Project Path="tests/Miau.Core.Tests/Miau.Core.Tests.csproj" />
+    <Project Path="tests/Miau.Engine.Tests/Miau.Engine.Tests.csproj" />
   </Folder>
 </Solution>
