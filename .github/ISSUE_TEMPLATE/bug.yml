@@ -1,0 +1,23 @@
+name: Bug
+description: Relatar falha reproduzível
+title: "fix: "
+body:
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Passos, esperado e observado
+      description: Não incluir prompts privados, modelos ou credenciais.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Windows, versão do miau-mal e hardware pertinente
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Critérios de aceite e teste de regressão
+    validations:
+      required: true

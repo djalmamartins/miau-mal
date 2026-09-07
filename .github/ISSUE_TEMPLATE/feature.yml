@@ -1,0 +1,25 @@
+name: Funcionalidade pequena
+description: Propor uma etapa testável e reversível
+title: "feat: "
+body:
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objetivo e escopo
+      description: Informe milestone/área e o comportamento esperado. Uma funcionalidade por issue.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Critérios de aceite
+      description: Critérios observáveis, incluindo erros e limites relevantes.
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Plano de validação
+      description: Build, testes, analyzers e validação Windows pertinentes.
+    validations:
+      required: true
