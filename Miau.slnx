@@ -5,6 +5,7 @@
     <Project Path="src/Miau.Engine/Miau.Engine.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Miau.Api.Tests/Miau.Api.Tests.csproj" />
     <Project Path="tests/Miau.Core.Tests/Miau.Core.Tests.csproj" />
   </Folder>
 </Solution>
