@@ -1,0 +1,39 @@
+name: Foundation CI
+on:
+  push:
+    branches: [main, 'feature/**', 'fix/**', 'codex/**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  foundation:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Restore
+        run: dotnet restore Miau.slnx
+      - name: Build and analyzers
+        run: dotnet build Miau.slnx -c Release --no-restore
+      - name: Test
+        run: dotnet test Miau.slnx -c Release --no-build --logger trx --results-directory TestResults
+      - name: Process smoke checks
+        run: python scripts/smoke.py
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-test-results
+          path: TestResults/*.trx
+          if-no-files-found: warn
