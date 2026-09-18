@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup><ProjectReference Include="..\Miau.Core\Miau.Core.csproj" /></ItemGroup>
+  <PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup>
+</Project>
