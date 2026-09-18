@@ -2,6 +2,8 @@
 **/obj/
 .vs/
 .vscode/
+**/node_modules/
+**/out/
 *.user
 *.suo
 *.gguf
