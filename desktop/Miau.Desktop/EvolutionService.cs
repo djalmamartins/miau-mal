@@ -24,7 +24,7 @@ public sealed class EvolutionService
         var rejected = await ReadDocuments(Path.Combine(dataset, "rejected"), ct); var review = await ReadDocuments(Path.Combine(dataset, "review"), ct);
         var memories = await ReadDocuments(Path.Combine(appData, "memory"), ct);
         var trainingCycles = await ReadDocuments(Path.Combine(appData, "training"), ct);
-        var repairDecisions = await ReadDocuments(Path.Combine(appData, "self-repair"), ct, topLevelOnly: true);
+        var repairDecisions = await ReadNamedDocuments(Path.Combine(appData, "self-repair", "decisions.jsonl"), ct);
         var repairEvents = await ReadNamedDocuments(Path.Combine(appData, "self-repair", "events.jsonl"), ct);
         var repairsPromoted = repairEvents.Count(x => Text(x, "State").Equals("promoted", StringComparison.OrdinalIgnoreCase));
         var repairsReverted = repairEvents.Count(x => Text(x, "State").Equals("reverted", StringComparison.OrdinalIgnoreCase));
