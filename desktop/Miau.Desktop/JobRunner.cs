@@ -5,7 +5,7 @@ public sealed class JobRunner
     readonly TimeSpan idlePoll = TimeSpan.FromSeconds(30);
 
     public event Action<string>? StatusChanged;
-    public bool IsRunning { get; private set; }
+    public bool IsRunning { get; private set; }\n    public bool StopAfterCurrentTask { get; set; }
 
     public async Task RunAsync(
         Func<CancellationToken, Task<AgentJob?>> acquireNext,
@@ -39,7 +39,7 @@ public sealed class JobRunner
                     StatusChanged?.Invoke($"Falhou: {job.Title} — {ex.Message}");
                 }
 
-                await Task.Delay(afterTaskDelay, ct);
+                if (StopAfterCurrentTask)\n                {\n                    StatusChanged?.Invoke("Parado após a tarefa atual");\n                    break;\n                }\n\n                await Task.Delay(afterTaskDelay, ct);
             }
         }
         finally
