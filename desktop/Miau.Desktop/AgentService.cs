@@ -23,6 +23,10 @@ public sealed class AgentService
 
         string? lastSignature = null;
         var repeated = 0;
+        var projectAnalysisRequested = Regex.IsMatch(prompt, @"\b(analis|revis|audit|estrutura|estado|entend|ponto)\w*", RegexOptions.IgnoreCase);
+        var readOnlyRequested = Regex.IsMatch(prompt, @"(não|nao)\s+(altere|modifique|edite|mude)", RegexOptions.IgnoreCase);
+        var inspectedRoot = false;
+        var inspectedCentralFile = false;
 
         for (var step = 0; step < 30; step++)
         {
@@ -46,7 +50,15 @@ public sealed class AgentService
                 calls.AddRange(ParseTextCalls(content));
 
             if (calls.Count == 0)
+            {
+                if (projectAnalysisRequested && (!inspectedRoot || !inspectedCentralFile))
+                {
+                    messages.Add(new("assistant", content));
+                    messages.Add(new("user", "A análise ainda está incompleta. Antes da resposta final, use list_files na raiz e leia pelo menos um arquivo central real do projeto (README, arquivo de projeto/solution ou entry point). Depois continue a inspeção e só então responda."));
+                    continue;
+                }
                 return string.IsNullOrWhiteSpace(content) ? "O modelo encerrou sem produzir uma resposta." : content;
+            }
 
             var assistantCalls = new List<ToolCall>();
             foreach (var call in calls)
@@ -62,9 +74,24 @@ public sealed class AgentService
                     continue;
                 }
 
+                if (readOnlyRequested && call.Name is "write_file" or "replace_in_file" or "run_command")
+                {
+                    messages.Add(new("user", $"A tarefa é somente leitura. A ferramenta {call.Name} está bloqueada. Use apenas list_files, read_file, search, git_status ou git_diff."));
+                    continue;
+                }
                 progress(Describe(call.Name, call.Args));
                 string output;
-                try { output = await Execute(root, call.Name, call.Args, ct); }
+                try
+                {
+                    output = await Execute(root, call.Name, call.Args, ct);
+                    if (call.Name == "list_files") inspectedRoot = true;
+                    if (call.Name == "read_file")
+                    {
+                        var raw = call.Args.ValueKind == JsonValueKind.Object && call.Args.TryGetProperty("path", out var rp) ? rp.GetString() ?? "" : "";
+                        var file = Path.GetFileName(raw);
+                        if (file.Equals("README.md", StringComparison.OrdinalIgnoreCase) || file.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase) || file.EndsWith(".sln", StringComparison.OrdinalIgnoreCase) || file.EndsWith(".slnx", StringComparison.OrdinalIgnoreCase) || file is "Program.cs" or "App.axaml.cs" or "MainWindow.axaml.cs") inspectedCentralFile = true;
+                    }
+                }
                 catch (Exception ex) { output = "ERRO DA FERRAMENTA: " + ex.Message; }
 
                 assistantCalls.Add(new ToolCall(new ToolFunction(call.Name, call.Args)));
