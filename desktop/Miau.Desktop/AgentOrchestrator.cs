@@ -63,6 +63,25 @@ public sealed class AgentOrchestrator
                 if (response.Type == "action")
                 {
                     trace.Add(new(DateTimeOffset.Now, "action_requested", response.Action!.Action, true, string.Join("; ", response.Action.Arguments.Select(x => $"{x.Key}={x.Value}"))));
+
+                    // Broad UI/site rewrites should not degrade into a long sequence of tiny replacements.
+                    // The orchestrator owns this policy; the model only proposes actions.
+                    if (response.Action.Action == ToolNames.ReplaceInFile && requirements.RequiresVisualValidation)
+                    {
+                        var targetPath = Target(response.Action) ?? "";
+                        var broadVisualTask = IsBroadVisualRewrite(task);
+                        var decision = editPolicy.Choose(targetPath, fileExists: true, fileRead: engine.Evidence.FilesInspected.Contains(targetPath, StringComparer.OrdinalIgnoreCase),
+                            changedRegions: broadVisualTask ? 2 : 1, fileCount: 1, substantialRewrite: broadVisualTask);
+                        if (decision.Method != EditMethod.Replace)
+                        {
+                            var blocked = ToolResult.Fail(response.Action.Action, $"replace_in_file inadequado para esta tarefa: {decision.Reason}.");
+                            trace.Add(new(DateTimeOffset.Now, "policy", blocked.Tool, false, blocked.Error!));
+                            turns.Add(new("assistant", raw));
+                            turns.Add(new("user", ToolObservation(blocked) + "\nESTRATÉGIA OBRIGATÓRIA: a tarefa pede uma reformulação visual ampla. Use write_file para reestruturar integralmente o arquivo lido ou apply_patch para múltiplas alterações estruturadas. Não reduza o pedido a trocas pontuais de texto."));
+                            Emit(ExecutionEventType.RetryStarted, "Selecionando estratégia de edição estrutural", targetPath, success: false, details: blocked.Error);
+                            continue;
+                        }
+                    }
                     if (!editPolicy.Allow(response.Action))
                     {
                         var blocked = ToolResult.Fail(response.Action.Action, "replace_in_file bloqueado após falhas repetidas; releia o arquivo e use write_file ou apply_patch.");
@@ -174,6 +193,14 @@ public sealed class AgentOrchestrator
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         { engine.Cancel(); Emit(ExecutionEventType.JobCancelled, "Tarefa cancelada pelo usuário", success: false); throw; }
+    }
+
+    internal static bool IsBroadVisualRewrite(string task)
+    {
+        var t = task.ToLowerInvariant();
+        var broad = new[] { "melhore significativamente", "reformul", "redesign", "reestrutur", "reconstru", "layout completo", "site completo", "landing page" };
+        var structure = new[] { "header", "hero", "footer", "seção", "secao", "responsiv", "layout", "interface", "site" };
+        return broad.Any(t.Contains) || structure.Count(t.Contains) >= 3;
     }
 
     delegate void EventEmitter(ExecutionEventType type, string description, string? target = null, TimeSpan? duration = null, bool? success = null, IReadOnlyDictionary<string, string>? metadata = null, string? details = null);
