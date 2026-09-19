@@ -4,7 +4,7 @@ using System.Text.Json;
 namespace Miau.Desktop;
 
 public sealed record RepairCandidate(string Id, string Reason, int EvidenceCount, string Prompt);
-public sealed record RepairDecision(string Id, bool Accepted, string Reason, DateTimeOffset At);
+public sealed record RepairDecision(string Id, bool Accepted, string Reason, DateTimeOffset At, string? PatchPath = null, string? BaseCommit = null, double BenchmarkBefore = 0, double BenchmarkAfter = 0, bool BuildPassed = false, bool TestsPassed = false);
 public sealed record RepairRunResult(string Id, bool Accepted, double BenchmarkBefore, double BenchmarkAfter, bool BuildPassed, bool TestsPassed, string Detail, string? PatchPath = null, string? BaseCommit = null);
 
 public sealed class SelfRepairService
@@ -57,7 +57,7 @@ public sealed class SelfRepairService
                     await File.WriteAllTextAsync(patchPath, patch, ct);
                 }
             }
-            await RecordDecisionAsync(new(candidate.Id, accepted, detail, DateTimeOffset.Now), ct);
+            await RecordDecisionAsync(new(candidate.Id, accepted, detail, DateTimeOffset.Now, patchPath, baseCommit, before, after, build, tests), ct);
             return new(candidate.Id, accepted, before, after, build, tests, detail, patchPath, baseCommit);
         }
         finally { try { if (Directory.Exists(temp)) Directory.Delete(temp, true); } catch { } }
@@ -91,6 +91,16 @@ public sealed class SelfRepairService
         var score = results.Count == 0 ? 0 : Math.Round(results.Count(x => x.Passed) * 100d / results.Count, 1);
         progress?.Invoke($"Benchmark {phase}: {score:0.0}% ({results.Count(x=>x.Passed)}/{results.Count}).");
         return score;
+    }
+
+    public async Task<IReadOnlyList<RepairDecision>> RecentAsync(CancellationToken ct, int limit = 20)
+    {
+        var file = Path.Combine(appData, "self-repair", "decisions.jsonl");
+        if (!File.Exists(file)) return [];
+        var items = new List<RepairDecision>();
+        foreach (var line in await File.ReadAllLinesAsync(file, ct))
+            try { var item = JsonSerializer.Deserialize<RepairDecision>(line); if (item is not null) items.Add(item); } catch { }
+        return items.OrderByDescending(x => x.At).Take(Math.Max(1, limit)).ToArray();
     }
 
     public async Task RecordDecisionAsync(RepairDecision decision, CancellationToken ct)
