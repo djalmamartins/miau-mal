@@ -87,7 +87,8 @@ Não invente elementos que não aparecem na imagem. Termine com VEREDITO: APROVA
             using var json = JsonDocument.Parse(body);
             var report = json.RootElement.GetProperty("message").GetProperty("content").GetString() ?? "";
             if (string.IsNullOrWhiteSpace(report)) return ToolResult.Fail(ToolNames.InspectVisual, "Modelo visual retornou relatório vazio.");
-            var verdict = report.Contains("VEREDITO: APROVADO", StringComparison.OrdinalIgnoreCase) ? "approved" : "review";
+            var normalizedVerdict = NormalizeVisualVerdict(report);
+            var verdict = normalizedVerdict == "approved" ? "approved" : "review";
             return ToolResult.Ok(ToolNames.InspectVisual, report,
                 ("visual_inspection", "true"), ("visual_verdict", verdict), ("vision_model", model), ("screenshot_path", screenshot));
         }
@@ -95,6 +96,21 @@ Não invente elementos que não aparecem na imagem. Termine com VEREDITO: APROVA
         { return ToolResult.Fail(ToolNames.InspectVisual, "Tempo limite de 90s na inspeção visual."); }
         catch (HttpRequestException ex)
         { return ToolResult.Fail(ToolNames.InspectVisual, "Falha ao acessar o Ollama visual: " + ex.Message); }
+    }
+
+    internal static string NormalizeVisualVerdict(string report)
+    {
+        // Small local vision models do not always obey the exact requested token.
+        // Accept only an explicit verdict near the end of the report, while
+        // tolerating Portuguese inflections such as "Veredito: Aprovar".
+        var tail = report.Length > 800 ? report[^800..] : report;
+        var matches = System.Text.RegularExpressions.Regex.Matches(
+            tail,
+            @"veredito\s*:\s*(aprovad[oa]|aprovar|revisar)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (matches.Count == 0) return "review";
+        var value = matches[^1].Groups[1].Value;
+        return value.StartsWith("aprov", StringComparison.OrdinalIgnoreCase) ? "approved" : "review";
     }
 
     static async Task<ToolResult> RenderPage(string workspace, string relative, CancellationToken ct)
