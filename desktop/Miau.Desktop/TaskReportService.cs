@@ -13,7 +13,8 @@ public sealed class TaskReportService
         string summary,
         CancellationToken ct)
     {
-        var dir = Path.Combine(root, ".miau", "reports");
+        var project = Path.GetFileName(root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MIAU", "reports", project);
         Directory.CreateDirectory(dir);
         var finished = DateTimeOffset.Now;
         var safeId = string.Concat(job.Id.Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' ? c : '-'));
@@ -39,6 +40,6 @@ public sealed class TaskReportService
             .ToString();
 
         await File.WriteAllTextAsync(file, text, ct);
-        return Path.GetRelativePath(root, file);
+        return file;
     }
 }
