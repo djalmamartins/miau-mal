@@ -62,6 +62,23 @@ public sealed class AgentOrchestratorTests
         Assert.Equal(JobPhase.Failed, result.Phase); Assert.Null(dataset.Record);
     }
 
+    [Theory]
+    [InlineData("melhore significativamente o site", true)]
+    [InlineData("faça um redesign da landing page", true)]
+    [InlineData("crie header, hero, footer e layout responsivo", true)]
+    [InlineData("corrija o texto do botão", false)]
+    public void BroadVisualRewriteClassificationIsDeterministic(string task, bool expected)
+        => Assert.Equal(expected, AgentOrchestrator.IsBroadVisualRewrite(task));
+
+    [Fact]
+    public void BroadVisualEvidenceRejectsSingleFileTweak()
+    {
+        var oneFile = new JobEvidence(["index.html"], ["index.html"], true, true, true, 0, null, true, true, true);
+        var twoFiles = new JobEvidence(["index.html", "style.css"], ["index.html", "style.css"], true, true, true, 0, null, true, true, true);
+        Assert.False(AgentOrchestrator.HasBroadVisualEvidence(oneFile));
+        Assert.True(AgentOrchestrator.HasBroadVisualEvidence(twoFiles));
+    }
+
     [Fact]
     public void JobEngineDoesNotDependOnModelAdapter()
     {
