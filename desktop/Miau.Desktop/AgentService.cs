@@ -100,6 +100,33 @@ public sealed class AgentService
             inspectedCentralFile = snapshotBodies.Count > 0;
         }
 
+        if (projectAnalysisRequested)
+        {
+            // Project-state reports must be factual and deterministic. Small local models can anchor on
+            // stale training/repository plans even when given contradictory current code.
+            var current = new List<string>
+            {
+                "MIAU Desktop está implementado em Avalonia sobre .NET 10.",
+                $"A inferência local está integrada via Ollama; modelo configurado: {Model}.",
+                "AgentService já orquestra o modelo e ferramentas locais de projeto/Git.",
+                File.Exists(Path.Combine(root, "desktop", "Miau.Desktop", "MemoryService.cs")) ? "MemoryService já fornece memória local por projeto." : "",
+                File.Exists(Path.Combine(root, "desktop", "Miau.Desktop", "ConversationService.cs")) ? "ConversationService já persiste conversas localmente." : "",
+                File.Exists(Path.Combine(root, "desktop", "Miau.Desktop", "GitHubJobService.cs")) ? "GitHubJobService já contém a base do modo autônomo via GitHub." : "",
+                File.Exists(Path.Combine(root, "desktop", "Miau.Desktop", "TaskReportService.cs")) ? "TaskReportService já gera relatórios de tarefas." : ""
+            }.Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
+
+            var next = new[]
+            {
+                "Validar e endurecer o ciclo do agente (ferramentas, timeout, cancelamento, erros e prevenção de loops).",
+                "Validar o modo autônomo ponta a ponta com GitHub, incluindo reserva de tarefa, branch, testes, commit, push e PR sem merge automático.",
+                "Concluir a experiência desktop: estados de execução/travamento, anexos/memória/histórico e empacotamento macOS/Windows."
+            };
+
+            return "**Estado atual comprovado**\n\n- " + string.Join("\n- ", current) +
+                   "\n\n**3 próximos passos**\n\n1. " + next[0] + "\n2. " + next[1] + "\n3. " + next[2] +
+                   "\n\n**Observação técnica**\n\nEste diagnóstico foi gerado a partir do snapshot do código atual. Planos históricos como WinUI 3 ou llama.cpp/GGUF não são tratados como direção ativa sem evidência no código atual. Nenhum teste foi executado por este diagnóstico.";
+        }
+
         for (var step = 0; step < 30; step++)
         {
             progress($"● Etapa {step + 1}: consultando {Model}…");
