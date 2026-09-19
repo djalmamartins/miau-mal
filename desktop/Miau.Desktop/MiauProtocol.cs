@@ -6,8 +6,8 @@ public static class ToolNames
 {
     public const string ListFiles = "list_files", ReadFile = "read_file", Search = "search", WriteFile = "write_file",
         ReplaceInFile = "replace_in_file", DeleteFile = "delete_file", ApplyPatch = "apply_patch", GitStatus = "git_status", GitDiff = "git_diff",
-        Build = "build", Test = "test", RunCommand = "run_command", FetchUrl = "fetch_url";
-    public static readonly HashSet<string> All = [ListFiles, ReadFile, Search, WriteFile, ReplaceInFile, DeleteFile, ApplyPatch, GitStatus, GitDiff, Build, Test, RunCommand, FetchUrl];
+        Build = "build", Test = "test", RunCommand = "run_command", FetchUrl = "fetch_url", RenderPage = "render_page";
+    public static readonly HashSet<string> All = [ListFiles, ReadFile, Search, WriteFile, ReplaceInFile, DeleteFile, ApplyPatch, GitStatus, GitDiff, Build, Test, RunCommand, FetchUrl, RenderPage];
 }
 
 public sealed record MiauAction(string Action, Dictionary<string, string> Arguments, string? Reason);
