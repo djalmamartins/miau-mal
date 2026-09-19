@@ -125,7 +125,11 @@ public sealed class AgentService
 
     static async Task<string> Execute(string root, string name, JsonElement a, CancellationToken ct)
     {
-        string Arg(string n, string d = "") => a.ValueKind == JsonValueKind.Object && a.TryGetProperty(n, out var x) ? x.GetString() ?? d : d;
+        string Arg(string n, string d = "")
+        {
+            if (a.ValueKind != JsonValueKind.Object || !a.TryGetProperty(n, out var x)) return d;
+            return x.ValueKind == JsonValueKind.String ? x.GetString() ?? d : x.ToString();
+        }
         string Safe(string p)
         {
             var basePath = Path.GetFullPath(root);
@@ -185,7 +189,23 @@ public sealed class AgentService
     }
 
     public Task<string> GetGitStatusAsync(string root, CancellationToken ct) => Cmd(root, "git status --short", ct);
-    public Task<string> GetGitDiffAsync(string root, CancellationToken ct) => Cmd(root, "git diff --no-color", ct);
+    public async Task<string> GetGitDiffAsync(string root, CancellationToken ct)
+    {
+        var tracked = await Cmd(root, "git diff --no-color", ct);
+        var untracked = await Cmd(root, "git ls-files --others --exclude-standard", ct);
+        if (string.IsNullOrWhiteSpace(untracked)) return tracked;
+        var blocks = new List<string>();
+        foreach (var rel in untracked.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var full = Path.GetFullPath(Path.Combine(root, rel));
+            if (!File.Exists(full)) continue;
+            string body;
+            try { body = await File.ReadAllTextAsync(full, ct); }
+            catch { body = "[arquivo binário ou não textual]"; }
+            blocks.Add($"--- /dev/null\n+++ b/{rel}\n@@ arquivo novo @@\n{body}");
+        }
+        return string.Join("\n", new[] { tracked, string.Join("\n\n", blocks) }.Where(x => !string.IsNullOrWhiteSpace(x)));
+    }
 
     static async Task<string> Cmd(string root, string command, CancellationToken ct)
     {
