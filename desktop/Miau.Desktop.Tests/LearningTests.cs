@@ -78,6 +78,13 @@ public sealed class LearningTests : IDisposable
         Assert.Equal(1, snapshot.RepairsRejected);
     }
 
+    [Fact] public async Task SelfRepairPromotionRequiresApprovedPatch()
+    {
+        var repair = new SelfRepairService(root);
+        var rejected = new RepairRunResult("x", false, 80, 90, true, true, "rejected");
+        await Assert.ThrowsAsync<InvalidOperationException>(() => repair.PromoteAsync(root, rejected, default));
+    }
+
     [Fact] public async Task TrainingSchedulerStaysDisabledByDefault()
     {
         var scheduler = new TrainingScheduler(new AgentService(), root);
