@@ -153,6 +153,32 @@ public partial class MainWindow : Window
         finally { trainingCts?.Dispose(); trainingCts = null; ConfigureTrainingTimer(); }
     }
 
+    async void ReviewRepairs(object? sender, RoutedEventArgs e)
+    {
+        var items = await selfRepair.RecentAsync(CancellationToken.None);
+        var approved = items.Where(x => x.Accepted && !string.IsNullOrWhiteSpace(x.PatchPath) && File.Exists(x.PatchPath)).ToArray();
+        if (approved.Length == 0) { await Message("Nenhum reparo aprovado aguardando revisão."); return; }
+        var latest = approved[0];
+        var patch = await File.ReadAllTextAsync(latest.PatchPath!);
+        var preview = patch.Length > 12000 ? patch[..12000] + "\n[diff truncado]" : patch;
+        var window = new Window { Title = $"Revisar {latest.Id}", Width = 900, Height = 700 };
+        var panel = new Grid { RowDefinitions = new RowDefinitions("Auto,*,Auto"), Margin = new Avalonia.Thickness(16) };
+        panel.Children.Add(new TextBlock { Text = $"{latest.Id} · benchmark {latest.BenchmarkBefore:0.0}% → {latest.BenchmarkAfter:0.0}% · build {(latest.BuildPassed ? "OK" : "falhou")} · testes {(latest.TestsPassed ? "OK" : "falhou")}", TextWrapping = TextWrapping.Wrap });
+        var diff = new TextBox { Text = preview, IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.NoWrap, FontFamily = new FontFamily("Menlo,Consolas,monospace"), FontSize = 11, Margin = new Avalonia.Thickness(0,12) };
+        Grid.SetRow(diff,1); panel.Children.Add(diff);
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };
+        var close = new Button { Content = "Fechar" }; close.Click += (_,_) => window.Close();
+        var promote = new Button { Content = "Promover patch" };
+        promote.Click += async (_,_) =>
+        {
+            if (string.IsNullOrWhiteSpace(workspace)) { await Message("Abra o projeto do MIAU antes de promover."); return; }
+            try { var stat = await selfRepair.PromoteAsync(workspace, new RepairRunResult(latest.Id, latest.Accepted, latest.BenchmarkBefore, latest.BenchmarkAfter, latest.BuildPassed, latest.TestsPassed, latest.Reason, latest.PatchPath, latest.BaseCommit), CancellationToken.None); Activity($"RepairJob {latest.Id} promovido para revisão local. {stat}"); await RefreshChanges(); window.Close(); }
+            catch (Exception ex) { await Message("Promoção bloqueada: " + DatasetService.Redact(ex.Message)); }
+        };
+        actions.Children.Add(close); actions.Children.Add(promote); Grid.SetRow(actions,2); panel.Children.Add(actions);
+        window.Content = panel; await window.ShowDialog(this);
+    }
+
     async void OpenWorkspace(object? s, RoutedEventArgs e)
     {
         var folders = await StorageProvider.OpenFolderPickerAsync(new() { Title = "Abrir projeto", AllowMultiple = false });
