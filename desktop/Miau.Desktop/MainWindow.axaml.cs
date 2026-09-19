@@ -135,7 +135,17 @@ public partial class MainWindow : Window
             {
                 var candidates = await selfRepair.DetectAsync(trainingCts.Token, state.SelfRepairEvidenceThreshold);
                 Activity(candidates.Count == 0 ? "Auto-reparo: nenhuma falha recorrente elegível." : $"Auto-reparo: {candidates.Count} candidato(s) aguardando execução segura.");
-                foreach (var item in candidates.Take(5)) Activity($"RepairJob {item.Id}: {item.Reason} · evidências {item.EvidenceCount}");
+                foreach (var item in candidates.Take(5))
+                {
+                    Activity($"RepairJob {item.Id}: {item.Reason} · evidências {item.EvidenceCount}");
+                    if (string.IsNullOrWhiteSpace(workspace)) continue;
+                    var manifest = Path.Combine(workspace, "benchmarks", "miau1-v0", "cases.json");
+                    if (!File.Exists(manifest)) { Activity("Auto-reparo aguardando: benchmark do MIAU não está disponível neste projeto."); continue; }
+                    var repair = await selfRepair.RunIsolatedAsync(workspace, item, agent, manifest, trainingCts.Token,
+                        x => Dispatcher.UIThread.Post(() => Activity(x)));
+                    Activity($"RepairJob {repair.Id}: {(repair.Accepted ? "APROVADO" : "REJEITADO")} · benchmark {repair.BenchmarkBefore:0.0}% → {repair.BenchmarkAfter:0.0}% · build {(repair.BuildPassed ? "OK" : "FALHOU")} · testes {(repair.TestsPassed ? "OK" : "FALHOU")}");
+                    if (repair.Accepted) Activity("Correção aprovada ficou isolada; promoção ao código principal continua exigindo revisão explícita.");
+                }
             }
         }
         catch (OperationCanceledException) { Activity("Ciclo de treino cancelado."); }
