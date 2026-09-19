@@ -1,37 +1,225 @@
-using System.Diagnostics; using System.Net.Http.Json; using System.Text.Json; using System.Text.RegularExpressions;
+using System.Diagnostics;
+using System.Net.Http.Json;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
+
 namespace Miau.Desktop;
-public sealed class AgentService {
- readonly HttpClient http=new(){BaseAddress=new Uri("http://127.0.0.1:11434"),Timeout=Timeout.InfiniteTimeSpan};
- static readonly string[] Allowed={"list_files","read_file","write_file","search","run_command","git_status","git_diff"};
- public async Task<string> RunAsync(string root,string prompt,CancellationToken ct,Action<string> progress){
-  var messages=new List<object>{new{role="system",content=SystemPrompt},new{role="user",content=prompt}};
-  for(var step=0;step<30;step++){
-   progress($"● Etapa {step+1}: consultando qwen2.5-coder:7b…");
-   using var r=await http.PostAsJsonAsync("/api/chat",new{model="qwen2.5-coder:7b",messages,stream=false,options=new{temperature=.1}},ct);r.EnsureSuccessStatusCode();
-   using var doc=JsonDocument.Parse(await r.Content.ReadAsStringAsync(ct));var content=doc.RootElement.GetProperty("message").GetProperty("content").GetString()??"";
-   var call=ParseCall(content);if(call is null)return content;
-   progress($"● {call.Value.name}");var output=await Execute(root,call.Value.name,call.Value.args,ct);
-   messages.Add(new{role="assistant",content});messages.Add(new{role="user",content=$"TOOL RESULT ({call.Value.name}):\n{Trim(output)}\nContinue. If finished, answer normally without JSON."});
-  } return "Limite de etapas atingido.";
- }
- static (string name,JsonElement args)? ParseCall(string s){var m=Regex.Match(s,@"\{[\s\S]*\}");if(!m.Success)return null;try{using var d=JsonDocument.Parse(m.Value);var x=d.RootElement;if(!x.TryGetProperty("name",out var n)||!x.TryGetProperty("arguments",out var a))return null;var name=n.GetString();if(name is null||!Allowed.Contains(name))return null;return(name,a.Clone());}catch{return null;}}
- static async Task<string> Execute(string root,string name,JsonElement a,CancellationToken ct){
-  string Arg(string n,string d="")=>a.TryGetProperty(n,out var x)?x.GetString()??d:d;
-  string Safe(string p){var full=Path.GetFullPath(Path.Combine(root,p));var rr=Path.GetFullPath(root)+Path.DirectorySeparatorChar;if(full!=Path.GetFullPath(root)&&!full.StartsWith(rr))throw new InvalidOperationException("Caminho fora do projeto.");return full;}
-  return name switch{
-   "list_files"=>string.Join("\n",Directory.EnumerateFileSystemEntries(Safe(Arg("path","."))).Take(300).Select(Path.GetFileName)),
-   "read_file"=>await File.ReadAllTextAsync(Safe(Arg("path")),ct),
-   "write_file"=>await Write(Safe(Arg("path")),Arg("content"),ct),
-   "search"=>string.Join("\n",Directory.EnumerateFiles(root,"*",SearchOption.AllDirectories).Where(p=>!p.Contains("/.git/")&&!p.Contains("/bin/")&&!p.Contains("/obj/")&&!p.Contains("/node_modules/")).SelectMany(p=>Find(p,Arg("query"))).Take(200)),
-   "git_status"=>await Cmd(root,"git status --short --branch",ct),
-   "git_diff"=>await Cmd(root,"git diff",ct),
-   "run_command"=>await Cmd(root,Arg("command"),ct),
-   _=>"Ferramenta desconhecida"
-  };
- }
- static async Task<string> Write(string p,string c,CancellationToken ct){Directory.CreateDirectory(Path.GetDirectoryName(p)!);await File.WriteAllTextAsync(p,c,ct);return $"Arquivo salvo: {p}";}
- static IEnumerable<string> Find(string p,string q){IEnumerable<string> lines;try{lines=File.ReadLines(p);}catch{yield break;}var i=0;foreach(var l in lines){i++;if(l.Contains(q,StringComparison.OrdinalIgnoreCase))yield return $"{p}:{i}: {l}";}}
- static async Task<string> Cmd(string root,string command,CancellationToken ct){var psi=new ProcessStartInfo("/bin/zsh",$"-lc \"{command.Replace("\"","\\\"")}\""){WorkingDirectory=root,RedirectStandardOutput=true,RedirectStandardError=true,UseShellExecute=false};if(OperatingSystem.IsWindows()){psi.FileName="cmd.exe";psi.Arguments="/c "+command;}using var p=Process.Start(psi)!;var o=p.StandardOutput.ReadToEndAsync(ct);var e=p.StandardError.ReadToEndAsync(ct);await p.WaitForExitAsync(ct);return(await o)+"\n"+(await e);}
- static string Trim(string s)=>s.Length>30000?s[..30000]+"\n[truncado]":s;
- const string SystemPrompt="""Você é MIAU, um agente local de programação. Trabalhe somente no projeto aberto. Para usar uma ferramenta, responda APENAS JSON: {"name":"tool","arguments":{...}}. Ferramentas: list_files(path), read_file(path), write_file(path,content), search(query), run_command(command), git_status(), git_diff(). Inspecione antes de editar, faça mudanças pequenas, rode testes quando apropriado. Nunca faça commit, push, reset, clean ou delete sem pedido explícito. Quando terminar, responda em português com resumo e testes executados.""";
+
+public sealed class AgentService
+{
+    readonly HttpClient http = new() { BaseAddress = new Uri("http://127.0.0.1:11434"), Timeout = Timeout.InfiniteTimeSpan };
+    static readonly HashSet<string> Allowed = ["list_files", "read_file", "write_file", "search", "run_command", "git_status", "git_diff"];
+
+    public async Task<string> RunAsync(string root, string prompt, CancellationToken ct, Action<string> progress)
+    {
+        var messages = new List<ChatMessage>
+        {
+            new("system", SystemPrompt),
+            new("user", prompt)
+        };
+
+        string? lastSignature = null;
+        var repeated = 0;
+
+        for (var step = 0; step < 30; step++)
+        {
+            progress($"● Etapa {step + 1}: consultando qwen2.5-coder:7b…");
+            using var r = await http.PostAsJsonAsync("/api/chat", new
+            {
+                model = "qwen2.5-coder:7b",
+                messages,
+                tools = ToolDefinitions,
+                stream = false,
+                options = new { temperature = .1 }
+            }, ct);
+            r.EnsureSuccessStatusCode();
+
+            using var doc = JsonDocument.Parse(await r.Content.ReadAsStringAsync(ct));
+            var message = doc.RootElement.GetProperty("message");
+            var content = message.TryGetProperty("content", out var c) ? c.GetString() ?? "" : "";
+
+            var calls = ParseNativeCalls(message);
+            if (calls.Count == 0)
+            {
+                var fallback = ParseTextCall(content);
+                if (fallback is not null) calls.Add(fallback.Value);
+            }
+
+            if (calls.Count == 0)
+                return string.IsNullOrWhiteSpace(content) ? "O modelo encerrou sem produzir uma resposta." : content;
+
+            var assistantCalls = new List<ToolCall>();
+            foreach (var call in calls)
+            {
+                ct.ThrowIfCancellationRequested();
+                var signature = call.Name + ":" + call.Args.GetRawText();
+                repeated = signature == lastSignature ? repeated + 1 : 0;
+                lastSignature = signature;
+                if (repeated >= 2)
+                {
+                    messages.Add(new("user", $"A ferramenta {call.Name} foi solicitada repetidamente com os mesmos argumentos. Não a repita. Use o resultado já recebido e avance para a próxima etapa ou dê a resposta final."));
+                    repeated = 0;
+                    continue;
+                }
+
+                progress($"● {call.Name}");
+                string output;
+                try { output = await Execute(root, call.Name, call.Args, ct); }
+                catch (Exception ex) { output = "ERRO DA FERRAMENTA: " + ex.Message; }
+
+                assistantCalls.Add(new ToolCall(new ToolFunction(call.Name, call.Args)));
+                messages.Add(new("assistant", content, assistantCalls.ToArray()));
+                messages.Add(new("tool", Trim(output), null, call.Name));
+                assistantCalls.Clear();
+            }
+        }
+        return "O agente atingiu o limite de 30 etapas. A tarefa foi interrompida para evitar um loop.";
+    }
+
+    static List<(string Name, JsonElement Args)> ParseNativeCalls(JsonElement message)
+    {
+        var result = new List<(string, JsonElement)>();
+        if (!message.TryGetProperty("tool_calls", out var calls) || calls.ValueKind != JsonValueKind.Array) return result;
+        foreach (var call in calls.EnumerateArray())
+        {
+            if (!call.TryGetProperty("function", out var fn) || !fn.TryGetProperty("name", out var n)) continue;
+            var name = n.GetString();
+            if (name is null || !Allowed.Contains(name)) continue;
+            var args = fn.TryGetProperty("arguments", out var a) ? a.Clone() : EmptyArgs();
+            result.Add((name, args));
+        }
+        return result;
+    }
+
+    static (string Name, JsonElement Args)? ParseTextCall(string s)
+    {
+        var m = Regex.Match(s, @"\{[\s\S]*\}");
+        if (!m.Success) return null;
+        try
+        {
+            using var d = JsonDocument.Parse(m.Value);
+            var x = d.RootElement;
+            if (!x.TryGetProperty("name", out var n)) return null;
+            var name = n.GetString();
+            if (name is null || !Allowed.Contains(name)) return null;
+            var args = x.TryGetProperty("arguments", out var a) ? a.Clone() : EmptyArgs();
+            return (name, args);
+        }
+        catch { return null; }
+    }
+
+    static JsonElement EmptyArgs() => JsonDocument.Parse("{}").RootElement.Clone();
+
+    static async Task<string> Execute(string root, string name, JsonElement a, CancellationToken ct)
+    {
+        string Arg(string n, string d = "") => a.ValueKind == JsonValueKind.Object && a.TryGetProperty(n, out var x) ? x.GetString() ?? d : d;
+        string Safe(string p)
+        {
+            var basePath = Path.GetFullPath(root);
+            var full = Path.GetFullPath(Path.Combine(root, p));
+            var prefix = basePath.EndsWith(Path.DirectorySeparatorChar) ? basePath : basePath + Path.DirectorySeparatorChar;
+            if (full != basePath && !full.StartsWith(prefix, StringComparison.Ordinal)) throw new InvalidOperationException("Caminho fora do projeto.");
+            return full;
+        }
+
+        return name switch
+        {
+            "list_files" => ListFiles(Safe(Arg("path", "."))),
+            "read_file" => await File.ReadAllTextAsync(Safe(Arg("path")), ct),
+            "write_file" => await Write(Safe(Arg("path")), Arg("content"), ct),
+            "search" => Search(root, Arg("query")),
+            "git_status" => await Cmd(root, "git status --short --branch", ct),
+            "git_diff" => await Cmd(root, "git diff", ct),
+            "run_command" => await Cmd(root, Arg("command"), ct),
+            _ => "Ferramenta desconhecida"
+        };
+    }
+
+    static string ListFiles(string path)
+    {
+        if (!Directory.Exists(path)) return "Diretório não encontrado: " + path;
+        return string.Join("\n", Directory.EnumerateFileSystemEntries(path)
+            .Where(p => !Ignored(p))
+            .Take(300)
+            .Select(p => (Directory.Exists(p) ? "[dir] " : "[file] ") + Path.GetFileName(p)));
+    }
+
+    static string Search(string root, string query) =>
+        string.Join("\n", Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
+            .Where(p => !Ignored(p))
+            .SelectMany(p => Find(p, query))
+            .Take(200));
+
+    static bool Ignored(string p)
+    {
+        var s = p.Replace('\\', '/');
+        return s.Contains("/.git/") || s.Contains("/bin/") || s.Contains("/obj/") || s.Contains("/node_modules/");
+    }
+
+    static async Task<string> Write(string p, string c, CancellationToken ct)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(p)!);
+        await File.WriteAllTextAsync(p, c, ct);
+        return $"Arquivo salvo: {p}";
+    }
+
+    static IEnumerable<string> Find(string p, string q)
+    {
+        IEnumerable<string> lines;
+        try { lines = File.ReadLines(p); } catch { yield break; }
+        var i = 0;
+        foreach (var l in lines) { i++; if (l.Contains(q, StringComparison.OrdinalIgnoreCase)) yield return $"{p}:{i}: {l}"; }
+    }
+
+    static async Task<string> Cmd(string root, string command, CancellationToken ct)
+    {
+        ProcessStartInfo psi;
+        if (OperatingSystem.IsWindows())
+            psi = new("cmd.exe", "/d /s /c \"" + command.Replace("\"", "\\\"") + "\"");
+        else
+            psi = new("/bin/zsh", "-lc \"" + command.Replace("\"", "\\\"") + "\"");
+        psi.WorkingDirectory = root;
+        psi.RedirectStandardOutput = true;
+        psi.RedirectStandardError = true;
+        psi.UseShellExecute = false;
+        using var p = Process.Start(psi) ?? throw new InvalidOperationException("Não foi possível iniciar o comando.");
+        var o = p.StandardOutput.ReadToEndAsync(ct);
+        var e = p.StandardError.ReadToEndAsync(ct);
+        await p.WaitForExitAsync(ct);
+        return (await o) + "\n" + (await e);
+    }
+
+    static string Trim(string s) => s.Length > 30000 ? s[..30000] + "\n[truncado]" : s;
+
+    record ChatMessage(
+        string role,
+        string content,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ToolCall[]? tool_calls = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? tool_name = null);
+    record ToolCall(ToolFunction function);
+    record ToolFunction(string name, JsonElement arguments);
+
+    static readonly object[] ToolDefinitions =
+    [
+        Tool("list_files", "Lista arquivos e diretórios de um caminho do projeto.", new { path = new { type = "string", description = "Caminho relativo. Use . para a raiz." } }),
+        Tool("read_file", "Lê um arquivo de texto do projeto.", new { path = new { type = "string" } }, ["path"]),
+        Tool("write_file", "Cria ou substitui um arquivo no projeto.", new { path = new { type = "string" }, content = new { type = "string" } }, ["path", "content"]),
+        Tool("search", "Pesquisa texto nos arquivos do projeto.", new { query = new { type = "string" } }, ["query"]),
+        Tool("run_command", "Executa um comando no terminal dentro do projeto.", new { command = new { type = "string" } }, ["command"]),
+        Tool("git_status", "Executa git status no projeto.", new { }),
+        Tool("git_diff", "Mostra o git diff do projeto.", new { })
+    ];
+
+    static object Tool(string name, string description, object properties, string[]? required = null) =>
+        new { type = "function", function = new { name, description, parameters = new { type = "object", properties, required = required ?? [] } } };
+
+    const string SystemPrompt = """
+Você é MIAU, um agente local de programação. Trabalhe somente no projeto aberto.
+Use as ferramentas fornecidas sempre que precisar inspecionar ou agir no projeto. Não escreva chamadas de ferramenta como texto/JSON quando puder usar tool_calls.
+Depois de receber o resultado de uma ferramenta, use esse resultado e avance; não repita a mesma chamada sem necessidade.
+Inspecione antes de editar, faça mudanças pequenas e rode testes quando apropriado.
+Nunca faça commit, push, reset, clean ou exclusões sem pedido explícito.
+Quando terminar, responda em português com um resumo objetivo e os testes executados.
+""";
 }
