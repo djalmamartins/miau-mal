@@ -33,6 +33,7 @@ public partial class MainWindow : Window
     DateTimeOffset executionStarted;
     DateTimeOffset lastExecutionPulse;
     bool executionBlink;
+    bool executionFinished;
     ExecutionEventType? activeExecution;
 
     public MainWindow()
@@ -325,6 +326,7 @@ public partial class MainWindow : Window
         switch (stateName)
         {
             case "running":
+                executionFinished = false;
                 executionStarted = DateTimeOffset.Now;
                 lastExecutionPulse = executionStarted;
                 executionBlink = true;
@@ -334,6 +336,7 @@ public partial class MainWindow : Window
                 executionTimer.Start();
                 break;
             case "failed":
+                executionFinished = true;
                 executionTimer.Stop();
                 ExecutionStateText.Text = "Travado / erro";
                 ExecutionStateText.Foreground = new SolidColorBrush(Color.Parse("#FF5B57"));
@@ -341,6 +344,7 @@ public partial class MainWindow : Window
                 ExecutionDot.Opacity = 1;
                 break;
             case "done":
+                executionFinished = true;
                 executionTimer.Stop();
                 ExecutionStateText.Text = "Concluído";
                 ExecutionStateText.Foreground = new SolidColorBrush(Color.Parse("#55D978"));
@@ -348,6 +352,7 @@ public partial class MainWindow : Window
                 ExecutionDot.Opacity = 1;
                 break;
             case "cancelled":
+                executionFinished = true;
                 executionTimer.Stop();
                 ExecutionStateText.Text = "Cancelado";
                 ExecutionStateText.Foreground = new SolidColorBrush(Color.Parse("#E8B84A"));
@@ -355,6 +360,7 @@ public partial class MainWindow : Window
                 ExecutionDot.Opacity = 1;
                 break;
             default:
+                executionFinished = true;
                 executionTimer.Stop();
                 ExecutionStateText.Text = "Aguardando";
                 ExecutionStateText.Foreground = new SolidColorBrush(Color.Parse("#969DA5"));
@@ -367,6 +373,7 @@ public partial class MainWindow : Window
 
     void PulseExecution()
     {
+        if (executionFinished) return;
         lastExecutionPulse = DateTimeOffset.Now;
         if (!executionTimer.IsEnabled) SetExecutionState("running");
     }
@@ -380,6 +387,7 @@ public partial class MainWindow : Window
 
     void UpdateExecutionHeartbeat()
     {
+        if (executionFinished) { executionTimer.Stop(); return; }
         var now = DateTimeOffset.Now;
         ExecutionElapsedText.Text = (now - executionStarted).ToString(@"mm\:ss");
         executionBlink = !executionBlink;
