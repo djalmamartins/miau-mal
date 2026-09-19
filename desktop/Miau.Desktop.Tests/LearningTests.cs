@@ -50,6 +50,21 @@ public sealed class LearningTests : IDisposable
         Assert.False(SelfRepairService.Accept(70, 90, true, false));
     }
 
+    [Fact] public async Task SelfRepairDetectionRequiresEnoughEvidence()
+    {
+        var dataset = Path.Combine(root, "dataset", "recovery"); Directory.CreateDirectory(dataset);
+        var file = Path.Combine(dataset, "failures.jsonl");
+        await File.WriteAllLinesAsync(file, [
+            "{\"FailedTool\":\"replace_in_file\"}",
+            "{\"FailedTool\":\"replace_in_file\"}"
+        ]);
+        var repair = new SelfRepairService(root);
+        Assert.Empty(await repair.DetectAsync(default, 3));
+        var candidates = await repair.DetectAsync(default, 2);
+        Assert.Single(candidates);
+        Assert.Equal("self-repair-replace-in-file", candidates[0].Id);
+    }
+
     [Fact] public async Task TrainingSchedulerStaysDisabledByDefault()
     {
         var scheduler = new TrainingScheduler(new AgentService(), root);
