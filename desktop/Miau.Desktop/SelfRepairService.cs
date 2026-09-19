@@ -47,6 +47,8 @@ public sealed class SelfRepairService
             string? patchPath = null;
             if (accepted)
             {
+                var untracked = (await Run(temp, "git", ["ls-files", "--others", "--exclude-standard"], ct)).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                foreach (var file in untracked) await Run(temp, "git", ["add", "-N", "--", file], ct);
                 var patch = await Run(temp, "git", ["diff", "--binary", "HEAD"], ct);
                 if (!string.IsNullOrWhiteSpace(patch))
                 {
