@@ -130,7 +130,7 @@ public partial class MainWindow : Window
             var schedule = new TrainingSchedule(true, state.TrainingIntervalHours, state.TrainingMaxTasksPerCycle);
             var result = await training.RunCycleAsync(workspace ?? Environment.CurrentDirectory, schedule, trainingCts.Token,
                 x => Dispatcher.UIThread.Post(() => Activity(x)));
-            Activity($"Ciclo de treino: {result.Completed}/{result.Attempted} concluídos; {result.Failed} falhas.");
+            Activity($"Ciclo de treino: {result.Completed}/{result.Attempted} aprovados; {result.Failed} falhas; {result.Rejected} rejeitados pelo verificador.");
             if (state.SelfRepairEnabled)
             {
                 var candidates = await selfRepair.DetectAsync(trainingCts.Token, state.SelfRepairEvidenceThreshold);
