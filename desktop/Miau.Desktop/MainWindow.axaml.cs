@@ -386,6 +386,23 @@ public partial class MainWindow : Window
             Activity($"{(item.Success ? "✓" : "✕")} {item.Name}: {item.Detail}");
     }
 
+    async void RunBenchmark(object? sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(workspace)) { await Message("Abra o repositório do MIAU para executar o benchmark."); return; }
+        var manifest = Path.Combine(workspace, "benchmarks", "miau1-v0", "cases.json");
+        if (!File.Exists(manifest)) { await Message("Manifesto benchmarks/miau1-v0/cases.json não encontrado neste workspace."); return; }
+        Activity("Benchmark MIAU1-Coder iniciado em workspaces temporários isolados.");
+        try
+        {
+            var results = await agent.RunBenchmarkAsync(manifest, CancellationToken.None);
+            foreach (var item in results)
+                Activity($"{(item.Passed ? "✓" : "✕")} {item.Id}: {item.DurationSeconds:0.0}s · tools {item.ToolCalls} · retries {item.Retries} · score {item.QualityScore:0}");
+            var passed = results.Count(x => x.Passed);
+            Activity($"Benchmark concluído: {passed}/{results.Count} aprovados. Os casos de benchmark não entram no dataset de treinamento.");
+        }
+        catch (Exception ex) { Activity("Benchmark falhou: " + DatasetService.Redact(ex.Message)); }
+    }
+
     async void OpenEvolutionDashboard(object? sender, RoutedEventArgs e)
     {
         try
