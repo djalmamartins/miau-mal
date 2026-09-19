@@ -433,7 +433,8 @@ public partial class MainWindow : Window
         UpdatePhaseChecklist(ev.Phase);
         var symbol = ev.Success switch { true => "✓", false => "✕", _ => "›" };
         var elapsed = ev.Duration is { } d ? $" · {d.TotalSeconds:0.0}s" : "";
-        var title = $"{symbol} {ev.Description}{elapsed}" + (string.IsNullOrWhiteSpace(ev.Target) ? "" : $"\n  {ev.Target}");
+        var narrative = ExecutionNarrative(ev);
+        var title = $"{symbol} {narrative}{elapsed}" + (string.IsNullOrWhiteSpace(ev.Target) || ev.Type is ExecutionEventType.ModelRequestStarted or ExecutionEventType.ModelRequestCompleted ? "" : $"\n  {ev.Target}");
         Control item = string.IsNullOrWhiteSpace(ev.Details)
             ? new TextBlock { Text = title, TextWrapping = TextWrapping.Wrap, FontSize = 11 }
             : new Expander
@@ -445,6 +446,27 @@ public partial class MainWindow : Window
         while (ActivityFeed.Children.Count > 120) ActivityFeed.Children.RemoveAt(0);
         Dispatcher.UIThread.Post(() => ActivityScroller.ScrollToEnd(), DispatcherPriority.Background);
     }
+
+    static string ExecutionNarrative(ExecutionEvent ev) => ev.Type switch
+    {
+        ExecutionEventType.JobStarted => "Recebi a tarefa e iniciei a análise",
+        ExecutionEventType.ModelRequestStarted => "Analisando o próximo passo",
+        ExecutionEventType.ModelRequestCompleted => "Defini o próximo passo",
+        ExecutionEventType.FileRead => "Li o arquivo necessário",
+        ExecutionEventType.FileCreated => "Criei um arquivo",
+        ExecutionEventType.FileChanged => "Editei um arquivo",
+        ExecutionEventType.DiffStarted => "Conferindo as alterações",
+        ExecutionEventType.DiffCompleted => "Alterações conferidas no Git",
+        ExecutionEventType.BuildStarted => "Validando o projeto",
+        ExecutionEventType.BuildCompleted => "Validação concluída",
+        ExecutionEventType.TestsStarted => "Executando os testes",
+        ExecutionEventType.TestsCompleted => "Testes concluídos",
+        ExecutionEventType.RetryStarted => "Encontrei um problema e vou tentar outra estratégia",
+        ExecutionEventType.JobCompleted => "Tarefa concluída",
+        ExecutionEventType.JobFailed => "A execução foi interrompida por uma falha",
+        ExecutionEventType.JobCancelled => "Execução cancelada",
+        _ => ev.Description
+    };
 
     static string EventStateLabel(ExecutionEventType type) => type switch
     {
