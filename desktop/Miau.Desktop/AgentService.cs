@@ -9,6 +9,7 @@ namespace Miau.Desktop;
 public sealed class AgentService
 {
     readonly HttpClient http = new() { BaseAddress = new Uri("http://127.0.0.1:11434"), Timeout = Timeout.InfiniteTimeSpan };
+    public string Model { get; set; } = "qwen2.5-coder:7b";
     static readonly HashSet<string> Allowed = ["list_files", "read_file", "write_file", "search", "run_command", "git_status", "git_diff"];
     static readonly string[] Dangerous = ["git reset --hard", "git clean", "git push --force", "rm -rf", "rmdir /s", "del /f /s", "format ", "shutdown", "reboot"];
 
@@ -25,10 +26,10 @@ public sealed class AgentService
 
         for (var step = 0; step < 30; step++)
         {
-            progress($"● Etapa {step + 1}: consultando qwen2.5-coder:7b…");
+            progress($"● Etapa {step + 1}: consultando {Model}…");
             using var r = await http.PostAsJsonAsync("/api/chat", new
             {
-                model = "qwen2.5-coder:7b",
+                model = Model,
                 messages,
                 tools = ToolDefinitions,
                 stream = false,
