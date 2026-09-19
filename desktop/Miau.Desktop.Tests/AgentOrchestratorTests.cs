@@ -14,13 +14,60 @@ public sealed class AgentOrchestratorTests
             """{"type":"action","action":"replace_in_file","arguments":{"path":"desktop/Miau.Desktop/MainWindow.axaml","old_text":"Atualizar diff","new_text":"Atualizar diff"},"reason":"adicionar tooltip"}""",
             """{"type":"final","summary":"Tooltip atualizado e build validado.","files_changed":["desktop/Miau.Desktop/MainWindow.axaml"]}""");
         var tools = new RecordingTools(); var dataset = new RecordingDataset();
-        var result = await new AgentOrchestrator(model, tools, dataset).RunAsync("/workspace", "Adicione um tooltip mais descritivo ao botão Atualizar diff. Faça somente essa alteração.", new(true, false), CancellationToken.None);
+        var timeline = new List<ExecutionEvent>();
+        var result = await new AgentOrchestrator(model, tools, dataset).RunAsync("/workspace", "Adicione um tooltip mais descritivo ao botão Atualizar diff. Faça somente essa alteração.", new(true, false), CancellationToken.None, eventSink: timeline.Add);
         Assert.Equal(JobPhase.Completed, result.Phase);
         Assert.Contains(ToolNames.ReadFile, tools.Calls);
         Assert.Contains(ToolNames.ReplaceInFile, tools.Calls);
         Assert.Contains(ToolNames.GitDiff, tools.Calls);
         Assert.True(tools.Validated);
         Assert.NotNull(dataset.Record);
+        Assert.Contains(timeline, x => x.Type == ExecutionEventType.ModelRequestStarted);
+        Assert.Contains(timeline, x => x.Type == ExecutionEventType.FileChanged || x.Description == "Alterou arquivo");
+        Assert.Contains(timeline, x => x.Type == ExecutionEventType.DiffCompleted);
+        Assert.Contains(timeline, x => x.Type == ExecutionEventType.JobCompleted);
+    }
+
+    [Fact]
+    public async Task CancellationCancelsModelAndEmitsCancelled()
+    {
+        using var cts = new CancellationTokenSource(30); var timeline = new List<ExecutionEvent>();
+        var orchestrator = new AgentOrchestrator(new BlockingModel(), new RecordingTools(), new RecordingDataset());
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => orchestrator.RunAsync("/workspace", "analise", new(false, true), cts.Token, eventSink: timeline.Add));
+        Assert.Contains(timeline, x => x.Type == ExecutionEventType.JobCancelled && x.Phase == JobPhase.Cancelled);
+    }
+
+    [Fact]
+    public async Task BuildFailureTriggersRetryAndThenCompletes()
+    {
+        var model = new QueueModel(
+            """{"type":"action","action":"read_file","arguments":{"path":"a.cs"}}""",
+            """{"type":"action","action":"replace_in_file","arguments":{"path":"a.cs","old_text":"a","new_text":"b"}}""",
+            """{"type":"final","summary":"primeira tentativa","files_changed":["a.cs"]}""",
+            """{"type":"action","action":"replace_in_file","arguments":{"path":"a.cs","old_text":"b","new_text":"c"}}""",
+            """{"type":"final","summary":"corrigido","files_changed":["a.cs"]}""");
+        var tools = new RecordingTools { FailFirstValidation = true }; var timeline = new List<ExecutionEvent>();
+        var result = await new AgentOrchestrator(model, tools, new RecordingDataset()).RunAsync("/workspace", "corrija a.cs", new(true, false), default, eventSink: timeline.Add);
+        Assert.Equal(JobPhase.Completed, result.Phase); Assert.Equal(2, tools.ValidationCount);
+        Assert.Contains(timeline, x => x.Type == ExecutionEventType.BuildFailed);
+        Assert.Contains(timeline, x => x.Type == ExecutionEventType.RetryStarted);
+    }
+
+    [Fact]
+    public async Task DatasetIsNotSavedWhenJobFails()
+    {
+        var dataset = new RecordingDataset();
+        var result = await new AgentOrchestrator(new QueueModel("prosa", "prosa", "prosa", "prosa"), new RecordingTools(), dataset)
+            .RunAsync("/workspace", "edite algo", new(true, false), default);
+        Assert.Equal(JobPhase.Failed, result.Phase); Assert.Null(dataset.Record);
+    }
+
+    [Fact]
+    public void JobEngineDoesNotDependOnModelAdapter()
+    {
+        var engine = new JobEngine(new(false, true)); engine.Start();
+        Assert.Equal(JobPhase.Understanding, engine.Phase);
+        Assert.DoesNotContain(typeof(JobEngine).GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic), x => typeof(IModelAdapter).IsAssignableFrom(x.FieldType));
     }
 
     sealed class QueueModel(params string[] responses) : IModelAdapter
@@ -31,6 +78,8 @@ public sealed class AgentOrchestratorTests
     sealed class RecordingTools : IToolExecutor
     {
         public List<string> Calls { get; } = []; public bool Validated { get; private set; }
+        public bool FailFirstValidation { get; init; }
+        public int ValidationCount { get; private set; }
         public Task<ToolResult> ExecuteAsync(string workspace, MiauAction action, bool readOnly, CancellationToken ct)
         {
             Calls.Add(action.Action);
@@ -45,7 +94,16 @@ public sealed class AgentOrchestratorTests
             return Task.FromResult(result);
         }
         public Task<ToolResult> ValidateAsync(string workspace, CancellationToken ct)
-        { Validated = true; return Task.FromResult(ToolResult.Ok(ToolNames.Build, "Build succeeded", ("validation", "true"))); }
+        {
+            Validated = true; ValidationCount++;
+            if (FailFirstValidation && ValidationCount == 1) return Task.FromResult(ToolResult.Fail(ToolNames.Build, "compile error"));
+            return Task.FromResult(ToolResult.Ok(ToolNames.Build, "Build succeeded", ("validation", "true")));
+        }
+    }
+    sealed class BlockingModel : IModelAdapter
+    {
+        public string ModelId => "blocking";
+        public async Task<string> CompleteStepAsync(ModelRequest request, CancellationToken ct) { await Task.Delay(Timeout.InfiniteTimeSpan, ct); return ""; }
     }
     sealed class RecordingDataset : IDatasetService
     {
