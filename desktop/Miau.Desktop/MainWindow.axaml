@@ -11,13 +11,7 @@
  <Border Grid.Column="0" Background="#12161A" BorderBrush="#282E34" BorderThickness="0,0,1,0">
   <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="22">
    <StackPanel Orientation="Horizontal" Spacing="14">
-    <Grid Width="70" Height="62">
-     <Ellipse Width="68" Height="48" Fill="#050607" VerticalAlignment="Bottom"/>
-     <Polygon Points="8,28 17,2 29,22" Fill="#050607"/>
-     <Polygon Points="41,22 53,2 62,28" Fill="#050607"/>
-     <Path Data="M 15,31 A 12,12 0 0 0 35,31" Stroke="#FFC400" StrokeThickness="7"/>
-     <Path Data="M 37,31 A 12,12 0 0 0 57,31" Stroke="#FFC400" StrokeThickness="7"/>
-    </Grid>
+    <Image x:Name="SidebarLogo" Width="70" Height="62" Stretch="Uniform"/>
     <StackPanel VerticalAlignment="Center"><TextBlock Text="MIAU" FontSize="27" FontWeight="Bold"/><TextBlock Classes="muted" Text="Seu agente local"/></StackPanel>
    </StackPanel>
    <Button Grid.Row="1" Margin="0,25,0,18" Height="48" Content="＋  Nova conversa" Click="NewTask"/>
@@ -36,13 +30,7 @@
   </Border>
   <Grid Grid.Row="1">
    <StackPanel x:Name="Welcome" HorizontalAlignment="Center" VerticalAlignment="Center" Width="790">
-    <Grid Width="142" Height="116" Margin="0,0,0,20">
-     <Ellipse Width="136" Height="94" Fill="#030405" VerticalAlignment="Bottom"/>
-     <Polygon Points="8,50 27,3 54,42" Fill="#030405"/>
-     <Polygon Points="88,42 115,3 134,50" Fill="#030405"/>
-     <Path Data="M 28,62 A 24,24 0 0 0 66,62" Stroke="#FFC400" StrokeThickness="13"/>
-     <Path Data="M 76,62 A 24,24 0 0 0 114,62" Stroke="#FFC400" StrokeThickness="13"/>
-    </Grid>
+    <Image x:Name="WelcomeLogo" Width="170" Height="138" Stretch="Uniform" Margin="0,0,0,20"/>
     <TextBlock Text="Como posso ajudar?" FontSize="36" FontWeight="Bold" HorizontalAlignment="Center"/>
     <TextBlock Classes="muted" Text="Codifique. Planeje. Analise. Faça mais com o MIAU." FontSize="18" HorizontalAlignment="Center" Margin="0,10,0,0"/>
     <Grid ColumnDefinitions="*,*,*,*" Margin="0,42,0,0">
