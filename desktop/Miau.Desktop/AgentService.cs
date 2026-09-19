@@ -59,7 +59,10 @@ public sealed class AgentService
                 .Where(p => !Ignored(p) && !p.StartsWith(desktopRoot, StringComparison.OrdinalIgnoreCase)).Take(2));
 
             messages.Add(new("user", "REGRA DE EVIDÊNCIA: determine o estado ATUAL principalmente pelo código existente na branch ativa. Documentos de roadmap/arquitetura podem estar históricos ou desatualizados. Se documentação e implementação divergirem, diga isso explicitamente e priorize o que o código atual comprova. Não afirme que testes foram executados apenas porque git_status/git_diff foram usados."));
-            foreach (var file in candidates.Distinct(StringComparer.OrdinalIgnoreCase).Take(8))
+            // Put the evidence rule after the inspected files too. Small local models overweight older/root
+            // documents, so the final instruction must explicitly reconcile them with the active desktop code.
+            var selectedAnalysisFiles = candidates.Distinct(StringComparer.OrdinalIgnoreCase).Take(8).ToList();
+            foreach (var file in selectedAnalysisFiles)
             {
                 ct.ThrowIfCancellationRequested();
                 try
@@ -71,6 +74,9 @@ public sealed class AgentService
                 }
                 catch { }
             }
+
+            var inspectedNames = string.Join(", ", selectedAnalysisFiles.Select(p => Path.GetRelativePath(root, p)));
+            messages.Add(new("user", $"INSTRUÇÃO FINAL DA PRÉ-INSPEÇÃO: arquivos realmente lidos: {inspectedNames}. Antes de responder, reconcilie esses arquivos. O aplicativo desktop atual em desktop/Miau.Desktop é Avalonia/.NET 10 e o código lido é evidência do estado presente. Não proponha WinUI 3, llama.cpp/GGUF ou reconstrução da CLI como próximos passos só porque aparecem em documentação histórica, a menos que o código atual também demonstre que continuam sendo o plano ativo. Descreva primeiro o que já existe e funciona no desktop atual."));
         }
 
         for (var step = 0; step < 30; step++)
