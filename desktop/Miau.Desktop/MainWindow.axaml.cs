@@ -25,7 +25,13 @@ public partial class MainWindow : Window
         }
     }
 
-    void NewTask(object? s, RoutedEventArgs e) { Thread.Children.Clear(); PromptBox.Text = ""; }
+    void NewTask(object? s, RoutedEventArgs e)
+    {
+        Thread.Children.Clear();
+        PromptBox.Text = "";
+        Welcome.IsVisible = true;
+        Scroller.IsVisible = false;
+    }
 
     void Stop(object? s, RoutedEventArgs e) => cts?.Cancel();
 
@@ -54,6 +60,8 @@ public partial class MainWindow : Window
         if (string.IsNullOrWhiteSpace(prompt)) return;
         if (string.IsNullOrWhiteSpace(workspace)) { await Message("Abra um projeto primeiro."); return; }
 
+        Welcome.IsVisible = false;
+        Scroller.IsVisible = true;
         Add("Você", prompt);
         PromptBox.Text = "";
         SendButton.IsEnabled = false;
