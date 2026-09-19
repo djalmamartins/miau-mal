@@ -1,6 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
  x:Class="Miau.Desktop.MainWindow" Title="MIAU" Width="1536" Height="960" MinWidth="1100" MinHeight="700"
- Background="#0D1013">
+ Background="#000000">
 <Window.Styles>
  <Style Selector="Button"><Setter Property="CornerRadius" Value="8"/><Setter Property="Padding" Value="12,9"/></Style>
  <Style Selector="Button.nav"><Setter Property="HorizontalContentAlignment" Value="Left"/><Setter Property="Background" Value="Transparent"/><Setter Property="Margin" Value="0,2"/></Style>
@@ -8,10 +8,14 @@
  <Style Selector="Border.card"><Setter Property="Background" Value="#151A1F"/><Setter Property="BorderBrush" Value="#2B3238"/><Setter Property="BorderThickness" Value="1"/><Setter Property="CornerRadius" Value="12"/></Style>
 </Window.Styles>
 <Grid ColumnDefinitions="286,*,310">
- <Border Grid.Column="0" Background="#12161A" BorderBrush="#282E34" BorderThickness="0,0,1,0">
+ <Border Grid.Column="0" Background="#0B0E11" BorderBrush="#282E34" BorderThickness="0,0,1,0">
   <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="22">
    <StackPanel Orientation="Horizontal" Spacing="14">
-    <Image x:Name="SidebarLogo" Width="70" Height="62" Stretch="Uniform"/>
+    <Border Width="70" Height="25" Background="#000000" ClipToBounds="True" VerticalAlignment="Center">
+     <Canvas Width="70" Height="25">
+      <Image x:Name="SidebarLogo" Width="129" Height="111" Stretch="Fill" Canvas.Left="-29" Canvas.Top="-64"/>
+     </Canvas>
+    </Border>
     <StackPanel VerticalAlignment="Center"><TextBlock Text="MIAU" FontSize="27" FontWeight="Bold"/><TextBlock Classes="muted" Text="Seu agente local"/></StackPanel>
    </StackPanel>
    <Button Grid.Row="1" Margin="0,25,0,18" Height="48" Content="＋  Nova conversa" Click="NewTask"/>
@@ -30,7 +34,11 @@
   </Border>
   <Grid Grid.Row="1">
    <StackPanel x:Name="Welcome" HorizontalAlignment="Center" VerticalAlignment="Center" Width="790">
-    <Image x:Name="WelcomeLogo" Width="170" Height="138" Stretch="Uniform" Margin="0,0,0,20"/>
+    <Border Width="190" Height="55" Background="#000000" ClipToBounds="True" HorizontalAlignment="Center" Margin="0,0,0,28">
+     <Canvas Width="190" Height="55">
+      <Image x:Name="WelcomeLogo" Width="350" Height="303" Stretch="Fill" Canvas.Left="-80" Canvas.Top="-174"/>
+     </Canvas>
+    </Border>
     <TextBlock Text="Como posso ajudar?" FontSize="36" FontWeight="Bold" HorizontalAlignment="Center"/>
     <TextBlock Classes="muted" Text="Codifique. Planeje. Analise. Faça mais com o MIAU." FontSize="18" HorizontalAlignment="Center" Margin="0,10,0,0"/>
     <Grid ColumnDefinitions="*,*,*,*" Margin="0,42,0,0">
