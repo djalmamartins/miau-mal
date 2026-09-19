@@ -119,14 +119,32 @@ public sealed class AgentOrchestrator
                 }
                 if (requirements.RequiresChange)
                 {
-                    var actual = engine.Evidence.FilesChanged.Where(x => x != "(patch)").ToArray();
-                    var unexpected = actual.Except(final.FilesChanged, StringComparer.OrdinalIgnoreCase).ToArray();
-                    if (final.FilesChanged.Count == 0 || unexpected.Length > 0)
+                    var actual = engine.Evidence.FilesChanged.Where(x => x != "(patch)").OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray();
+                    var declared = final.FilesChanged.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray();
+                    if (actual.Length == 0)
                     {
-                        var scopeReason = final.FilesChanged.Count == 0 ? "Final sem files_changed; escopo não comprovado." : "Arquivos fora do escopo declarado: " + string.Join(", ", unexpected);
+                        const string scopeReason = "Nenhuma alteração comprovada pelo JobEngine.";
                         if (!engine.RecordFailure(scopeReason)) break;
                         Emit(ExecutionEventType.RetryStarted, "Escopo da alteração recusado", success: false, details: scopeReason);
-                        turns.Add(new("assistant", raw)); turns.Add(new("user", $"SCOPE GUARD: {scopeReason} Corrija ou declare exatamente os arquivos alterados.")); continue;
+                        turns.Add(new("assistant", raw)); turns.Add(new("user", $"SCOPE GUARD: {scopeReason} Faça a alteração solicitada antes de finalizar.")); continue;
+                    }
+                    if (declared.Length == 0)
+                    {
+                        // The model's prose declaration is advisory. The deterministic JobEngine already
+                        // knows the files actually changed, so do not burn a retry for an empty files_changed.
+                        final = final with { FilesChanged = actual };
+                        Emit(ExecutionEventType.ToolCompleted, "Escopo final reconciliado com evidência do JobEngine", string.Join(", ", actual), success: true);
+                    }
+                    else
+                    {
+                        var unexpected = actual.Except(declared, StringComparer.OrdinalIgnoreCase).ToArray();
+                        if (unexpected.Length > 0)
+                        {
+                            var scopeReason = "Arquivos fora do escopo declarado: " + string.Join(", ", unexpected);
+                            if (!engine.RecordFailure(scopeReason)) break;
+                            Emit(ExecutionEventType.RetryStarted, "Escopo da alteração recusado", success: false, details: scopeReason);
+                            turns.Add(new("assistant", raw)); turns.Add(new("user", $"SCOPE GUARD: {scopeReason} Declare exatamente os arquivos alterados: {string.Join(", ", actual)}.")); continue;
+                        }
                     }
                 }
                 if (!engine.TryComplete(out var reason))
