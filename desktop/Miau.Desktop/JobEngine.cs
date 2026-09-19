@@ -36,7 +36,7 @@ public sealed class JobEngine
         if (result.Metadata.TryGetValue("changed_path", out var changedPath) && !string.IsNullOrWhiteSpace(changedPath))
         { changed.Add(changedPath); Transition(JobPhase.Executing, "Editando arquivos"); }
         if (result.Metadata.TryGetValue("visual_validation", out var visual) && visual == "true") VisualValidationRan = true;
-        if (result.Metadata.TryGetValue("visual_inspection", out var inspected) && inspected == "true") { VisualInspectionRan = true; VisualInspectionPassed = result.Metadata.GetValueOrDefault("visual_verdict") == "approved"; }
+        if (result.Metadata.TryGetValue("visual_inspection", out var visualInspected) && visualInspected == "true") { VisualInspectionRan = true; VisualInspectionPassed = result.Metadata.GetValueOrDefault("visual_verdict") == "approved"; }
         if (result.Tool == ToolNames.GitDiff)
         { HasGitDiff = result.Metadata.TryGetValue("has_changes", out var value) && value == "true"; Transition(JobPhase.Verifying, "Verificando alterações"); }
         if (result.Metadata.TryGetValue("validation", out var validation) && validation == "true")
