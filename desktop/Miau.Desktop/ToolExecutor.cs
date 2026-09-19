@@ -33,7 +33,8 @@ public sealed class ToolExecutor : IToolExecutor
                 ToolNames.ReadFile => ToolResult.Ok(action.Action, await File.ReadAllTextAsync(SafePath(workspace, Arg("path")), ct), ("inspected_path", Arg("path"))),
                 ToolNames.Search => ToolResult.Ok(action.Action, Search(workspace, Arg("query")), ("inspected_path", ".")),
                 ToolNames.WriteFile => await Write(action.Action, SafePath(workspace, Arg("path")), Arg("content"), Arg("path"), ct),
-                ToolNames.ReplaceInFile => await Replace(action.Action, SafePath(workspace, Arg("path")), Arg("old_text"), Arg("new_text"), Arg("path"), ct),\n                ToolNames.DeleteFile => Delete(action.Action, SafePath(workspace, Arg("path")), Arg("path")),
+                ToolNames.ReplaceInFile => await Replace(action.Action, SafePath(workspace, Arg("path")), Arg("old_text"), Arg("new_text"), Arg("path"), ct),
+                ToolNames.DeleteFile => Delete(action.Action, SafePath(workspace, Arg("path")), Arg("path")),
                 ToolNames.ApplyPatch => await ApplyPatch(action.Action, workspace, Arg("patch"), ct),
                 ToolNames.GitStatus => ToolResult.Ok(action.Action, await Run(workspace, "git", ["status", "--short", "--branch"], ct)),
                 ToolNames.GitDiff => await GitDiff(workspace, ct),
@@ -111,7 +112,14 @@ public sealed class ToolExecutor : IToolExecutor
 
     static async Task<ToolResult> Write(string tool, string path, string content, string relative, CancellationToken ct)
     { Directory.CreateDirectory(Path.GetDirectoryName(path)!); await File.WriteAllTextAsync(path, content, ct); return ToolResult.Ok(tool, $"Arquivo salvo: {relative}", ("changed_path", relative)); }
-    static ToolResult Delete(string tool, string path, string relative)\n    {\n        if (!File.Exists(path)) throw new FileNotFoundException($"Arquivo não encontrado: {relative}");\n        File.Delete(path);\n        return ToolResult.Ok(tool, $"Arquivo removido: {relative}", ("changed_path", relative));\n    }\n\n    static async Task<ToolResult> Replace(string tool, string path, string oldText, string newText, string relative, CancellationToken ct)
+    static ToolResult Delete(string tool, string path, string relative)
+    {
+        if (!File.Exists(path)) throw new FileNotFoundException($"Arquivo não encontrado: {relative}");
+        File.Delete(path);
+        return ToolResult.Ok(tool, $"Arquivo removido: {relative}", ("changed_path", relative));
+    }
+
+    static async Task<ToolResult> Replace(string tool, string path, string oldText, string newText, string relative, CancellationToken ct)
     {
         if (string.IsNullOrEmpty(oldText))
             throw new InvalidOperationException("Edição recusada: old_text não pode ser vazio.");
