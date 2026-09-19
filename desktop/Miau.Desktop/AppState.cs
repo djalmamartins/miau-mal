@@ -11,7 +11,7 @@ public sealed class AppState
     public bool AutonomousMode { get; set; }
     public int NextTaskDelaySeconds { get; set; } = 120;
     public bool TrainingEnabled { get; set; }
-    public int TrainingIntervalHours { get; set; } = 6;
+    public int TrainingIntervalHours { get; set; } = 24;
     public int TrainingMaxTasksPerCycle { get; set; } = 3;
     public bool SelfRepairEnabled { get; set; }
     public int SelfRepairEvidenceThreshold { get; set; } = 3;
