@@ -105,6 +105,7 @@
      <CheckBox Grid.Column="1" x:Name="StopAfterTaskCheck" Content="Parar após tarefa" VerticalAlignment="Center" IsVisible="False"/>
     </Grid>
     <TextBlock x:Name="CurrentJobText" Classes="muted" Text="Aguardando trabalho" TextWrapping="Wrap"/>
+    <Button Content="Abrir Evolution Dashboard" HorizontalAlignment="Stretch" Margin="0,8,0,0" Click="OpenEvolutionDashboard"/>
    </StackPanel>
 
    <TabControl Grid.Row="1" Margin="0,14,0,0" TabStripPlacement="Top">

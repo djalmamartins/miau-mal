@@ -4,6 +4,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.Media.Imaging;
+using System.Diagnostics;
 
 namespace Miau.Desktop;
 
@@ -18,6 +19,8 @@ public partial class MainWindow : Window
     readonly MemoryService memory = new();
     readonly ConversationService conversations = new();
     readonly DiagnosticsService diagnostics = new();
+    readonly EvolutionService evolution = new();
+    EvolutionDashboardService? evolutionDashboard;
     CancellationTokenSource? cts;
     CancellationTokenSource? runnerCts;
     string? workspace;
@@ -381,6 +384,26 @@ public partial class MainWindow : Window
         Activity("MIAU Diagnostics");
         foreach (var item in await diagnostics.RunAsync(workspace, agent.Model, CancellationToken.None))
             Activity($"{(item.Success ? "✓" : "✕")} {item.Name}: {item.Detail}");
+    }
+
+    async void OpenEvolutionDashboard(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            evolutionDashboard ??= new EvolutionDashboardService(evolution, agent.Model);
+            evolutionDashboard.Start();
+            Process.Start(new ProcessStartInfo(EvolutionDashboardService.Url) { UseShellExecute = true });
+            Activity($"Evolution Dashboard aberto em {EvolutionDashboardService.Url}");
+        }
+        catch (Exception ex) { await Message("Não foi possível abrir o Evolution Dashboard: " + ex.Message); }
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        runnerCts?.Cancel();
+        cts?.Cancel();
+        if (evolutionDashboard is not null) _ = evolutionDashboard.DisposeAsync();
+        base.OnClosed(e);
     }
 
     async void Send(object? s, RoutedEventArgs e)
