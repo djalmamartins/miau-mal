@@ -25,6 +25,8 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         LoadBrand();
+        agent.Model = state.Model;
+        StatusText.Text = $"● {state.Model} (local)";
         AgentIdText.Text = state.AgentId;
         runner.StatusChanged += s => Dispatcher.UIThread.Post(() => { CurrentJobText.Text = s; Activity(s); });
         RestoreWorkspace();
