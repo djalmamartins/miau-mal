@@ -45,12 +45,20 @@ public sealed class TrainingScheduler
         yield return ("edit", "Edição controlada", "Altere somente README.md acrescentando ao final uma linha exatamente: MIAU training edit OK");
         yield return ("create", "Criação controlada", "Crie somente training-result.txt contendo exatamente MIAU training create OK");
         yield return ("recover", "Recuperação controlada", "No arquivo config.txt altere exatamente mode=old para mode=new. Não altere outros arquivos.");
+        yield return ("delete", "Remoção segura", "Remova somente obsolete.txt. Não altere nenhum outro arquivo.");
+        yield return ("multi", "Alteração multi-arquivo", "Altere app.txt para conter app=v2 e test.txt para conter test=v2. Não altere outros arquivos.");
+        yield return ("scope", "Respeito de escopo", "Altere somente allowed.txt para conter allowed=v2. Não altere protected.txt.");
     }
 
     static async Task SeedAsync(string root, string id, CancellationToken ct)
     {
         await File.WriteAllTextAsync(Path.Combine(root, "README.md"), "# MIAU Training\n", ct);
         await File.WriteAllTextAsync(Path.Combine(root, "config.txt"), "mode=old\n", ct);
+        await File.WriteAllTextAsync(Path.Combine(root, "obsolete.txt"), "remove me\n", ct);
+        await File.WriteAllTextAsync(Path.Combine(root, "app.txt"), "app=v1\n", ct);
+        await File.WriteAllTextAsync(Path.Combine(root, "test.txt"), "test=v1\n", ct);
+        await File.WriteAllTextAsync(Path.Combine(root, "allowed.txt"), "allowed=v1\n", ct);
+        await File.WriteAllTextAsync(Path.Combine(root, "protected.txt"), "do-not-touch\n", ct);
         var psi = new System.Diagnostics.ProcessStartInfo("git") { WorkingDirectory = root, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
         foreach (var args in new[]{ new[]{"init"}, new[]{"add","."}, new[]{"-c","user.name=MIAU Training","-c","user.email=miau@local","commit","-m","seed"} })
         { psi.ArgumentList.Clear(); foreach(var a in args) psi.ArgumentList.Add(a); using var p=System.Diagnostics.Process.Start(psi)!; await p.WaitForExitAsync(ct); }
