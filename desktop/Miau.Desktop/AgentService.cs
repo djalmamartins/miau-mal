@@ -41,10 +41,7 @@ public sealed class AgentService
 
             var calls = ParseNativeCalls(message);
             if (calls.Count == 0)
-            {
-                var fallback = ParseTextCall(content);
-                if (fallback is not null) calls.Add(fallback.Value);
-            }
+                calls.AddRange(ParseTextCalls(content));
 
             if (calls.Count == 0)
                 return string.IsNullOrWhiteSpace(content) ? "O modelo encerrou sem produzir uma resposta." : content;
@@ -69,8 +66,19 @@ public sealed class AgentService
                 catch (Exception ex) { output = "ERRO DA FERRAMENTA: " + ex.Message; }
 
                 assistantCalls.Add(new ToolCall(new ToolFunction(call.Name, call.Args)));
-                messages.Add(new("assistant", content, assistantCalls.ToArray()));
-                messages.Add(new("tool", Trim(output), null, call.Name));
+                // Do not feed textual JSON calls back as normal assistant prose.
+                // For native calls preserve tool_calls; for textual fallback give the result
+                // as an explicit observation so Qwen can continue reliably.
+                if (message.TryGetProperty("tool_calls", out _))
+                {
+                    messages.Add(new("assistant", content, assistantCalls.ToArray()));
+                    messages.Add(new("tool", Trim(output), null, call.Name));
+                }
+                else
+                {
+                    messages.Add(new("assistant", $"Vou executar {call.Name}."));
+                    messages.Add(new("user", $"RESULTADO DA FERRAMENTA {call.Name}:\n{Trim(output)}\nUse este resultado. Não repita esta ferramenta sem necessidade; continue a tarefa."));
+                }
                 assistantCalls.Clear();
             }
         }
@@ -92,21 +100,25 @@ public sealed class AgentService
         return result;
     }
 
-    static (string Name, JsonElement Args)? ParseTextCall(string s)
+    static List<(string Name, JsonElement Args)> ParseTextCalls(string s)
     {
-        var m = Regex.Match(s, @"\{[\s\S]*\}");
-        if (!m.Success) return null;
-        try
+        var result = new List<(string, JsonElement)>();
+        // Qwen may emit several JSON tool calls on separate lines instead of native tool_calls.
+        foreach (Match m in Regex.Matches(s, @"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}"))
         {
-            using var d = JsonDocument.Parse(m.Value);
-            var x = d.RootElement;
-            if (!x.TryGetProperty("name", out var n)) return null;
-            var name = n.GetString();
-            if (name is null || !Allowed.Contains(name)) return null;
-            var args = x.TryGetProperty("arguments", out var a) ? a.Clone() : EmptyArgs();
-            return (name, args);
+            try
+            {
+                using var d = JsonDocument.Parse(m.Value);
+                var x = d.RootElement;
+                if (!x.TryGetProperty("name", out var n)) continue;
+                var name = n.GetString();
+                if (name is null || !Allowed.Contains(name)) continue;
+                var args = x.TryGetProperty("arguments", out var a) ? a.Clone() : EmptyArgs();
+                result.Add((name, args));
+            }
+            catch { }
         }
-        catch { return null; }
+        return result;
     }
 
     static JsonElement EmptyArgs() => JsonDocument.Parse("{}").RootElement.Clone();
