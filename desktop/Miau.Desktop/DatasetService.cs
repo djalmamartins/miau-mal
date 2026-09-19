@@ -11,7 +11,18 @@ public sealed record TrainingRecord(
     string Task, IReadOnlyList<string> Plan, IReadOnlyList<TaskTraceEvent> Actions,
     IReadOnlyList<TaskTraceEvent> ToolResults, IReadOnlyCollection<string> FilesInspected,
     IReadOnlyCollection<string> FilesChanged, IReadOnlyList<string> Patches,
-    string? BuildResult, string? TestsResult, IReadOnlyList<string> Errors, int Retries, string FinalResult);
+    string? BuildResult, string? TestsResult, IReadOnlyList<string> Errors, int Retries, string FinalResult)
+{
+    public string AgentVersionName { get; init; } = Miau1Coder.AgentName;
+    public string PromptVersion { get; init; } = Miau1Coder.PromptVersion;
+    public string ProtocolVersion { get; init; } = Miau1Coder.ProtocolVersion;
+    public string SchemaVersion { get; init; } = Miau1Coder.DatasetSchemaVersion;
+    public TimeSpan Duration { get; init; }
+    public bool Success { get; init; } = true;
+    public double QualityScore { get; init; }
+    public IReadOnlyList<string> QualityReasons { get; init; } = [];
+    public string? RecoveryStrategy { get; init; }
+}
 
 public interface IDatasetService { Task SaveCompletedAsync(string workspace, TrainingRecord record, CancellationToken ct); }
 
@@ -26,13 +37,16 @@ public sealed class DatasetService : IDatasetService
     public async Task SaveCompletedAsync(string workspace, TrainingRecord record, CancellationToken ct)
     {
         Directory.CreateDirectory(directory);
+        var quality = DatasetQuality.Evaluate(record);
         var safe = record with
         {
             Task = Redact(record.Task), FinalResult = Redact(record.FinalResult), Patches = record.Patches.Select(Redact).ToArray(),
             Actions = Sanitize(record.Actions), ToolResults = Sanitize(record.ToolResults),
-            BuildResult = Redact(record.BuildResult ?? ""), TestsResult = Redact(record.TestsResult ?? ""), Errors = record.Errors.Select(Redact).ToArray()
+            BuildResult = Redact(record.BuildResult ?? ""), TestsResult = Redact(record.TestsResult ?? ""), Errors = record.Errors.Select(Redact).ToArray(),
+            QualityScore = quality.Score, QualityReasons = quality.Reasons
         };
-        await File.AppendAllTextAsync(Path.Combine(directory, "miau1-coder-v0.jsonl"), JsonSerializer.Serialize(safe) + Environment.NewLine, ct);
+        var completed = Path.Combine(directory, "completed"); Directory.CreateDirectory(completed);
+        await File.AppendAllTextAsync(Path.Combine(completed, "miau1-coder-v0.jsonl"), JsonSerializer.Serialize(safe) + Environment.NewLine, ct);
     }
     static TaskTraceEvent[] Sanitize(IEnumerable<TaskTraceEvent> events) => events.Select(x => x with { Detail = Redact(Summarize(x.Detail)) }).ToArray();
     static string Summarize(string value) => value.Length <= 4000 ? value : value[..4000] + "\n[truncated]";
@@ -47,5 +61,37 @@ public sealed class DatasetService : IDatasetService
     {
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(workspace)));
         return Convert.ToHexString(bytes)[..16].ToLowerInvariant();
+    }
+
+    public async Task<int> ExportHighQualityAsync(string outputDirectory, double minimumScore, CancellationToken ct)
+    {
+        Directory.CreateDirectory(outputDirectory); var output = Path.Combine(outputDirectory, "miau1-coder-v0.jsonl"); var count = 0;
+        var source = Path.Combine(directory, "completed", "miau1-coder-v0.jsonl"); if (!File.Exists(source)) return 0;
+        foreach (var line in await File.ReadAllLinesAsync(source, ct))
+        { var item = JsonSerializer.Deserialize<TrainingRecord>(line); if (item is null || item.QualityScore < minimumScore) continue; await File.AppendAllTextAsync(output, line + Environment.NewLine, ct); count++; }
+        return count;
+    }
+
+    public async Task SaveRejectedAsync(string task, string model, string reason, CancellationToken ct)
+    {
+        var rejected = Path.Combine(directory, "rejected"); Directory.CreateDirectory(rejected);
+        var item = new { schema_version = Miau1Coder.DatasetSchemaVersion, timestamp = DateTimeOffset.Now, model, request = Redact(task), reason = Redact(reason), success = false };
+        await File.AppendAllTextAsync(Path.Combine(rejected, "miau-rejected-v1.jsonl"), JsonSerializer.Serialize(item) + Environment.NewLine, ct);
+    }
+}
+
+public sealed record DatasetQualityResult(double Score, IReadOnlyList<string> Reasons);
+public static class DatasetQuality
+{
+    public static DatasetQualityResult Evaluate(TrainingRecord record)
+    {
+        var score = record.Success ? 50d : 0d; var reasons = new List<string>();
+        if (record.Success) reasons.Add("tarefa concluída");
+        if (record.FilesChanged.Count > 0) { score += 15; reasons.Add("diff/arquivos alterados"); }
+        if (!string.IsNullOrWhiteSpace(record.BuildResult)) { score += 15; reasons.Add("build registrado"); }
+        if (!string.IsNullOrWhiteSpace(record.TestsResult)) { score += 15; reasons.Add("testes registrados"); }
+        score -= Math.Min(record.Retries * 5, 25); if (record.Retries > 0) reasons.Add($"-{record.Retries} retries");
+        score -= Math.Min(record.Errors.Count * 3, 15); if (record.Errors.Count > 0) reasons.Add($"-{record.Errors.Count} erros");
+        return new(Math.Clamp(score, 0, 100), reasons);
     }
 }
