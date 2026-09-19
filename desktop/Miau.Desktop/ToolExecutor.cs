@@ -34,6 +34,7 @@ public sealed class ToolExecutor : IToolExecutor
                 ToolNames.Search => ToolResult.Ok(action.Action, Search(workspace, Arg("query")), ("inspected_path", ".")),
                 ToolNames.FetchUrl => await FetchUrl(Arg("url"), ct),
                 ToolNames.RenderPage => await RenderPage(workspace, Arg("path", "index.html"), ct),
+                ToolNames.InspectVisual => await InspectVisual(Arg("screenshot_path"), Arg("model", "llava:7b"), ct),
                 ToolNames.WriteFile => await Write(action.Action, SafePath(workspace, Arg("path")), Arg("content"), Arg("path"), ct),
                 ToolNames.ReplaceInFile => await Replace(action.Action, SafePath(workspace, Arg("path")), Arg("old_text"), Arg("new_text"), Arg("path"), ct),
                 ToolNames.DeleteFile => Delete(action.Action, SafePath(workspace, Arg("path")), Arg("path")),
@@ -47,6 +48,53 @@ public sealed class ToolExecutor : IToolExecutor
             };
         }
         catch (Exception ex) when (ex is not OperationCanceledException) { return ToolResult.Fail(action.Action, ex.Message); }
+    }
+
+    static async Task<ToolResult> InspectVisual(string screenshot, string model, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(screenshot) || !File.Exists(screenshot))
+            return ToolResult.Fail(ToolNames.InspectVisual, "Screenshot não encontrado. Execute render_page primeiro e use o screenshot_path retornado.");
+        var bytes = await File.ReadAllBytesAsync(screenshot, ct);
+        var prompt = """
+Você é o inspetor visual do MIAU. Analise somente o screenshot fornecido.
+Retorne um relatório curto e objetivo em português com:
+1. hierarquia visual;
+2. espaçamento/alinhamento;
+3. tipografia/contraste;
+4. responsividade aparente;
+5. problemas visuais concretos;
+6. melhorias prioritárias.
+Não invente elementos que não aparecem na imagem. Termine com VEREDITO: APROVADO ou VEREDITO: REVISAR.
+""";
+        using var client = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(90));
+        var payload = JsonSerializer.Serialize(new
+        {
+            model,
+            stream = false,
+            messages = new[] { new { role = "user", content = prompt, images = new[] { Convert.ToBase64String(bytes) } } }
+        });
+        try
+        {
+            using var response = await client.PostAsync("http://127.0.0.1:11434/api/chat", new StringContent(payload, System.Text.Encoding.UTF8, "application/json"), timeout.Token);
+            var body = await response.Content.ReadAsStringAsync(timeout.Token);
+            if (!response.IsSuccessStatusCode)
+            {
+                var hint = body.Contains("not found", StringComparison.OrdinalIgnoreCase) ? $" Modelo visual '{model}' não está instalado no Ollama." : "";
+                return ToolResult.Fail(ToolNames.InspectVisual, $"Ollama visual respondeu HTTP {(int)response.StatusCode}.{hint}");
+            }
+            using var json = JsonDocument.Parse(body);
+            var report = json.RootElement.GetProperty("message").GetProperty("content").GetString() ?? "";
+            if (string.IsNullOrWhiteSpace(report)) return ToolResult.Fail(ToolNames.InspectVisual, "Modelo visual retornou relatório vazio.");
+            var verdict = report.Contains("VEREDITO: APROVADO", StringComparison.OrdinalIgnoreCase) ? "approved" : "review";
+            return ToolResult.Ok(ToolNames.InspectVisual, report,
+                ("visual_inspection", "true"), ("visual_verdict", verdict), ("vision_model", model), ("screenshot_path", screenshot));
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        { return ToolResult.Fail(ToolNames.InspectVisual, "Tempo limite de 90s na inspeção visual."); }
+        catch (HttpRequestException ex)
+        { return ToolResult.Fail(ToolNames.InspectVisual, "Falha ao acessar o Ollama visual: " + ex.Message); }
     }
 
     static async Task<ToolResult> RenderPage(string workspace, string relative, CancellationToken ct)
