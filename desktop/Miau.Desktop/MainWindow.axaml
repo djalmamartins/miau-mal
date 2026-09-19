@@ -106,6 +106,14 @@
     </Grid>
     <TextBlock x:Name="CurrentJobText" Classes="muted" Text="Aguardando trabalho" TextWrapping="Wrap"/>
     <Button Content="Abrir Evolution Dashboard" HorizontalAlignment="Stretch" Margin="0,8,0,0" Click="OpenEvolutionDashboard"/>
+    <Border Classes="card" Padding="10" Margin="0,8,0,0">
+     <StackPanel Spacing="7">
+      <TextBlock Text="AUTOAPERFEIÇOAMENTO" Classes="muted" FontSize="10"/>
+      <Grid ColumnDefinitions="*,Auto"><ToggleSwitch x:Name="TrainingToggle" Content="Treino controlado" Checked="TrainingChanged" Unchecked="TrainingChanged"/><TextBlock Grid.Column="1" x:Name="TrainingStatusText" Text="Desativado" Classes="muted" FontSize="10" VerticalAlignment="Center"/></Grid>
+      <ToggleSwitch x:Name="SelfRepairToggle" Content="Auto-reparo" Checked="SelfRepairChanged" Unchecked="SelfRepairChanged"/>
+      <Button Content="Executar ciclo agora" HorizontalAlignment="Stretch" Click="RunTrainingCycle"/>
+     </StackPanel>
+    </Border>
    </StackPanel>
 
    <TabControl Grid.Row="1" Margin="0,14,0,0" TabStripPlacement="Top">
