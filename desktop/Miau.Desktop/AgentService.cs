@@ -70,7 +70,27 @@ public sealed class AgentService
             }
 
             var inspectedNames = string.Join(", ", selectedAnalysisFiles.Select(p => Path.GetRelativePath(root, p)));
-            messages.Add(new("user", $"SNAPSHOT ATUAL DO MIAU DESKTOP: arquivos realmente lidos: {inspectedNames}. Esta é a base primária para responder sobre o estado atual. O aplicativo em execução é desktop/Miau.Desktop, Avalonia/.NET 10. Descreva o que este código comprova que já existe e derive os próximos passos das lacunas deste código. Não use planos históricos de WinUI 3, llama.cpp/GGUF ou reconstrução da CLI como próximos passos do desktop atual. Se precisar discutir documentação histórica, identifique-a explicitamente como histórica."));
+            var desktopFacts = new List<string>();
+            if (Directory.Exists(desktopRoot))
+            {
+                desktopFacts.Add("Aplicação desktop ativa: desktop/Miau.Desktop");
+                desktopFacts.Add("Stack comprovada pelo projeto atual: Avalonia + .NET 10");
+                if (File.Exists(Path.Combine(desktopRoot, "AgentService.cs")))
+                    desktopFacts.Add("AgentService existe: o desktop já possui orquestração de agente e ferramentas locais.");
+                if (File.Exists(Path.Combine(desktopRoot, "MemoryService.cs")))
+                    desktopFacts.Add("MemoryService existe: já há memória local por projeto.");
+                if (File.Exists(Path.Combine(desktopRoot, "ConversationService.cs")))
+                    desktopFacts.Add("ConversationService existe: já há persistência local de conversas.");
+                if (File.Exists(Path.Combine(desktopRoot, "GitHubJobService.cs")))
+                    desktopFacts.Add("GitHubJobService existe: já há base para trabalho autônomo via GitHub.");
+                if (File.Exists(Path.Combine(desktopRoot, "TaskReportService.cs")))
+                    desktopFacts.Add("TaskReportService existe: já há geração de relatórios de tarefas.");
+            }
+            desktopFacts.Add($"Modelo local configurado nesta execução: {Model}");
+            desktopFacts.Add("O AgentService conversa com Ollama pela API local /api/chat; inferência local já está integrada via Ollama.");
+            desktopFacts.Add("WinUI 3 e llama.cpp/GGUF pertencem a planejamento histórico e NÃO são o estado/rumo ativo do desktop atual.");
+            desktopFacts.Add("git_status e git_diff são inspeções Git, NÃO testes executados.");
+            messages.Add(new("user", "SNAPSHOT ESTRUTURADO — FATOS DO ESTADO ATUAL (estes fatos têm precedência sobre conhecimento anterior e documentação histórica):\n- " + string.Join("\n- ", desktopFacts) + $"\nArquivos atuais lidos: {inspectedNames}. Responda estritamente a partir deste snapshot e do código atual. Para 'próximos passos', derive lacunas do desktop atual; não ressuscite planos históricos."));
         }
 
         for (var step = 0; step < 30; step++)
