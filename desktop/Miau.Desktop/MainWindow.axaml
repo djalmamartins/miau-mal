@@ -6,6 +6,7 @@
  <Style Selector="Button.nav"><Setter Property="HorizontalContentAlignment" Value="Left"/><Setter Property="Background" Value="Transparent"/><Setter Property="Margin" Value="0,2"/></Style>
  <Style Selector="TextBlock.muted"><Setter Property="Foreground" Value="#969DA5"/></Style>
  <Style Selector="Border.card"><Setter Property="Background" Value="#151A1F"/><Setter Property="BorderBrush" Value="#2B3238"/><Setter Property="BorderThickness" Value="1"/><Setter Property="CornerRadius" Value="12"/></Style>
+ <Style Selector="Button.icon"><Setter Property="Width" Value="34"/><Setter Property="Height" Value="34"/><Setter Property="Padding" Value="0"/><Setter Property="CornerRadius" Value="17"/><Setter Property="FontSize" Value="17"/></Style>
 </Window.Styles>
 <Grid ColumnDefinitions="286,*,310">
  <Border Grid.Column="0" Background="#0B0E11" BorderBrush="#282E34" BorderThickness="0,0,1,0">
@@ -44,9 +45,16 @@
    </StackPanel>
    <ScrollViewer x:Name="Scroller" IsVisible="False"><StackPanel x:Name="Thread" Margin="46,30" Spacing="14"/></ScrollViewer>
   </Grid>
-  <Border Grid.Row="2" Margin="28,12,28,24" Padding="15" CornerRadius="20" Background="#161B20" BorderBrush="#343B42" BorderThickness="1">
-   <Grid RowDefinitions="Auto,Auto"><TextBox x:Name="PromptBox" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="80" Background="Transparent" BorderThickness="0" Watermark="Digite sua mensagem..."/>
-    <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,10,0,0"><Button Content="＋"/><TextBlock Grid.Column="1" Classes="muted" Text="Agente local" VerticalAlignment="Center" Margin="12,0"/><Button Grid.Column="2" x:Name="StopButton" Content="Parar" IsEnabled="False" Click="Stop"/><Button Grid.Column="3" x:Name="SendButton" Content="Enviar  →" Margin="8,0,0,0" Click="Send"/></Grid>
+  <Border Grid.Row="2" Margin="28,12,28,24" Padding="14" CornerRadius="18" Background="#12171C" BorderBrush="#2A3138" BorderThickness="1">
+   <Grid RowDefinitions="Auto,Auto">
+    <TextBox x:Name="PromptBox" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="82" Background="#0D1115" BorderBrush="#242B32" BorderThickness="1" CornerRadius="10" Padding="12" Watermark="Digite sua mensagem..."/>
+    <Grid Grid.Row="1" ColumnDefinitions="Auto,Auto,*,Auto" Margin="0,11,0,0">
+     <Button Classes="icon" Content="＋" ToolTip.Tip="Adicionar arquivo"/>
+     <Button Grid.Column="1" Classes="icon" Content="▧" Margin="8,0,0,0" ToolTip.Tip="Biblioteca"/>
+     <TextBlock Grid.Column="2" Classes="muted" Text="Agente local" VerticalAlignment="Center" Margin="12,0"/>
+     <Button Grid.Column="3" x:Name="SendButton" Classes="icon" Content="➜" ToolTip.Tip="Enviar" Click="Send"/>
+     <Button Grid.Column="3" x:Name="StopButton" Classes="icon" Content="■" ToolTip.Tip="Parar" IsVisible="False" Click="Stop"/>
+    </Grid>
    </Grid>
   </Border>
  </Grid>
