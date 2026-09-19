@@ -34,6 +34,7 @@ public sealed class GitHubJobService
                 await Run(root, "gh", ["issue","edit",number.ToString(),"--remove-label",claim], ct, false);
                 continue;
             }
+            await Run(root, "gh", ["issue","edit",number.ToString(),"--add-label","miau-working"], ct);
             var branch = $"miau/{Slug(agentId)}/{number}-{Slug(title,42)}";
             return new AgentJob(number.ToString(), $"#{number} {title}", $"Implemente a GitHub issue #{number}.\n\n{body}", branch);
         }
@@ -58,7 +59,11 @@ public sealed class GitHubJobService
     {
         if (string.IsNullOrWhiteSpace(await Run(root, "git", ["status","--porcelain"], ct)))
             throw new InvalidOperationException("A tarefa terminou sem alterações para entregar.");
-        await Run(root, "git", ["add","-A"], ct);
+        var status = await Run(root, "git", ["status","--porcelain","-z"], ct);
+        var changedFiles = ParseChangedFiles(status).ToArray();
+        if (changedFiles.Length == 0) throw new InvalidOperationException("Nenhum arquivo da tarefa foi identificado para commit.");
+        var addArgs = new List<string> { "add", "--" }; addArgs.AddRange(changedFiles);
+        await Run(root, "git", addArgs, ct);
         await Run(root, "git", ["commit","-m",$"feat(miau): complete issue #{job.Id}"], ct);
         var sha = (await Run(root, "git", ["rev-parse","HEAD"], ct)).Trim();
         await Run(root, "git", ["push","-u","origin",job.Branch!], ct);
@@ -69,7 +74,7 @@ public sealed class GitHubJobService
     public async Task CompleteAsync(string root, AgentJob job, string agentId, string report, CancellationToken ct)
     {
         await Run(root, "gh", ["issue","comment",job.Id,"--body",report], ct);
-        await SetOutcome(root, job, agentId, "miau-done", ct);
+        await SetOutcome(root, job, agentId, "miau-review", ct);
     }
 
     public async Task FailAsync(string root, AgentJob job, string agentId, string report, CancellationToken ct)
@@ -85,7 +90,7 @@ public sealed class GitHubJobService
 
     async Task EnsureLabelsAsync(string root, CancellationToken ct)
     {
-        foreach (var (name,color) in new[]{("miau-ready","1f883d"),("miau-done","8250df"),("miau-failed","cf222e")})
+        foreach (var (name,color) in new[]{("miau-ready","1f883d"),("miau-working","0969da"),("miau-review","8250df"),("miau-failed","cf222e")})
             await Run(root,"gh",["label","create",name,"--color",color,"--force"],ct,false);
     }
 
@@ -99,6 +104,17 @@ public sealed class GitHubJobService
         var s=new string(value.ToLowerInvariant().Select(c=>char.IsLetterOrDigit(c)?c:'-').ToArray());
         while(s.Contains("--")) s=s.Replace("--","-");
         s=s.Trim('-'); return s.Length<=max?s:s[..max].Trim('-');
+    }
+
+    public static IEnumerable<string> ParseChangedFiles(string porcelainZ)
+    {
+        var entries = porcelainZ.Split('\0', StringSplitOptions.RemoveEmptyEntries);
+        for (var i = 0; i < entries.Length; i++)
+        {
+            var entry = entries[i]; if (entry.Length < 4) continue; var status = entry[..2]; var path = entry[3..];
+            if (status.Contains('R') && i + 1 < entries.Length) path = entries[++i];
+            if (!string.IsNullOrWhiteSpace(path)) yield return path;
+        }
     }
 
     static async Task<string> Run(string root,string exe,IEnumerable<string> args,CancellationToken ct,bool throwOnError=true)
