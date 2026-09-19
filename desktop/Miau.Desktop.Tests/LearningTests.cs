@@ -85,6 +85,16 @@ public sealed class LearningTests : IDisposable
         await Assert.ThrowsAsync<InvalidOperationException>(() => repair.PromoteAsync(root, rejected, default));
     }
 
+    [Fact] public async Task RepairHistoryReturnsNewestFirst()
+    {
+        var service = new SelfRepairService(root);
+        await service.RecordDecisionAsync(new("old", false, "x", DateTimeOffset.Parse("2026-09-18T10:00:00Z")), default);
+        await service.RecordDecisionAsync(new("new", true, "x", DateTimeOffset.Parse("2026-09-19T10:00:00Z"), "/tmp/a.patch", "abc", 80, 90, true, true), default);
+        var items = await service.RecentAsync(default);
+        Assert.Equal("new", items[0].Id);
+        Assert.Equal(90, items[0].BenchmarkAfter);
+    }
+
     [Fact] public async Task TrainingSchedulerStaysDisabledByDefault()
     {
         var scheduler = new TrainingScheduler(new AgentService(), root);
