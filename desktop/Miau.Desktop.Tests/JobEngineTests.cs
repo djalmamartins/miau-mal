@@ -11,6 +11,17 @@ public sealed class JobEngineTests
     [Fact] public void ModelFinalDoesNotCompleteEngine() { var job = ChangedJob(); Assert.Equal(JobPhase.Inspecting, job.Phase); Assert.False(job.TryComplete(out _)); }
     [Fact] public void EditWithoutDiffFails() { var job = ChangedJob(); job.Observe(Ok(ToolNames.ReplaceInFile, ("changed_path", "a.cs"))); Assert.False(job.TryComplete(out _)); }
     [Fact] public void EditDiffAndBuildComplete() { var job = ChangedJob(); CompleteEvidence(job); Assert.True(job.TryComplete(out _)); Assert.Equal(JobPhase.Completed, job.Phase); }
+    [Fact] public void VisualTaskCannotFinishWithoutRender()
+    {
+        var job = new JobEngine(new(true, false, true, true)); job.Start(); job.BeginInspection();
+        job.Observe(Ok(ToolNames.ReadFile, ("inspected_path", "index.html")));
+        job.Observe(Ok(ToolNames.WriteFile, ("changed_path", "index.html")));
+        job.Observe(Ok(ToolNames.GitDiff, ("has_changes", "true")));
+        job.Observe(Ok(ToolNames.Test, ("validation", "true")));
+        Assert.False(job.TryComplete(out var reason)); Assert.Contains("renderizada", reason);
+        job.Observe(Ok(ToolNames.RenderPage, ("visual_validation", "true")));
+        Assert.True(job.TryComplete(out _));
+    }
     [Fact] public void EmptyDiffFails() { var job = ChangedJob(); job.Observe(Ok(ToolNames.WriteFile, ("changed_path", "a.cs"))); job.Observe(Ok(ToolNames.GitDiff, ("has_changes", "false"))); Assert.False(job.TryComplete(out _)); }
     [Fact] public void BuildFailureDoesNotCountAsTest() { var job = ChangedJob(); job.Observe(ToolResult.Fail(ToolNames.Build, "compile error")); Assert.False(job.Evidence.ValidationRan); }
     [Fact] public void CorrectionAfterBuildFailureCanComplete() { var job = ChangedJob(); job.Observe(ToolResult.Fail(ToolNames.Build, "compile error")); Assert.True(job.RecordFailure("compile error")); CompleteEvidence(job); Assert.True(job.TryComplete(out _)); }
