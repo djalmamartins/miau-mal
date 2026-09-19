@@ -13,7 +13,7 @@ public sealed class AgentOrchestrator
     public async Task<AgentRunResult> RunAsync(string workspace, string task, JobRequirements requirements, CancellationToken ct,
         Action<JobPhase, string>? progress = null, Action<ExecutionEvent>? eventSink = null)
     {
-        var engine = new JobEngine(requirements); var trace = new List<TaskTraceEvent>(); var plan = new List<string>(); var turns = new List<ModelTurn> { new("user", task) };
+        var engine = new JobEngine(requirements); var trace = new List<TaskTraceEvent>(); var plan = new List<string>(); var replaceFailures = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase); var turns = new List<ModelTurn> { new("user", task) };
         void Emit(ExecutionEventType type, string description, string? target = null, TimeSpan? duration = null, bool? success = null, IReadOnlyDictionary<string, string>? metadata = null, string? details = null)
             => eventSink?.Invoke(new(DateTimeOffset.Now, type, engine.Phase, description, target, duration, success, metadata, details));
         engine.StateChanged += (phase, description) => { progress?.Invoke(phase, description); Emit(ExecutionEventType.PhaseChanged, description, phase.ToString(), success: true); };
@@ -57,7 +57,14 @@ public sealed class AgentOrchestrator
                         if (!engine.RecordFailure(result.Error!)) break;
                         Emit(ExecutionEventType.RetryStarted, "Corrigindo falha da ferramenta", result.Tool, success: false, details: result.Error);
                         if (result.Tool == ToolNames.ReplaceInFile)
-                            turns.Add(new("user", "A edição pontual falhou. Não repita a mesma substituição. Leia novamente o arquivo para obter o conteúdo atual. Se a alteração for ampla, prefira write_file com o conteúdo completo e correto do arquivo; se for pequena, use um old_text maior que seja único."));
+                        {
+                            var target = Target(response.Action!) ?? "(arquivo)";
+                            replaceFailures[target] = replaceFailures.GetValueOrDefault(target) + 1;
+                            if (replaceFailures[target] >= 2)
+                                turns.Add(new("user", $"RECUPERAÇÃO DETERMINÍSTICA: replace_in_file falhou {replaceFailures[target]} vezes em {target}. Não use replace_in_file novamente neste arquivo nesta tarefa. Leia o arquivo atual e use write_file para gravar o conteúdo completo desejado."));
+                            else
+                                turns.Add(new("user", "A edição pontual falhou. Não repita a mesma substituição. Leia novamente o arquivo para obter o conteúdo atual. Se a alteração for ampla, prefira write_file com o conteúdo completo e correto do arquivo; se for pequena, use um old_text maior que seja único."));
+                        }
                     }
                     continue;
                 }
