@@ -13,7 +13,7 @@ public sealed class AgentOrchestrator
     public async Task<AgentRunResult> RunAsync(string workspace, string task, JobRequirements requirements, CancellationToken ct,
         Action<JobPhase, string>? progress = null, Action<ExecutionEvent>? eventSink = null)
     {
-        var engine = new JobEngine(requirements); var trace = new List<TaskTraceEvent>(); var plan = new List<string>(); var replaceFailures = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase); var turns = new List<ModelTurn> { new("user", task) }; var jobWatch = Stopwatch.StartNew();
+        var engine = new JobEngine(requirements); var trace = new List<TaskTraceEvent>(); var plan = new List<string>(); var replaceFailures = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase); var repeatedResponses = new Dictionary<string, int>(StringComparer.Ordinal); var turns = new List<ModelTurn> { new("user", task) }; var jobWatch = Stopwatch.StartNew();
         (MiauAction Action, ToolResult Result)? pendingRecovery = null;
         void Emit(ExecutionEventType type, string description, string? target = null, TimeSpan? duration = null, bool? success = null, IReadOnlyDictionary<string, string>? metadata = null, string? details = null)
             => eventSink?.Invoke(new(DateTimeOffset.Now, type, engine.Phase, description, target, duration, success, metadata, details));
@@ -34,6 +34,15 @@ public sealed class AgentOrchestrator
                 try { raw = await model.CompleteStepAsync(new(prompts.GetSystemPrompt(workspace, requirements), turns), ct); }
                 catch (TimeoutException ex) { engine.Fail(ex.Message); Emit(ExecutionEventType.JobFailed, "Ollama sem resposta", model.ModelId, watch.Elapsed, false, details: ex.Message); break; }
                 Emit(ExecutionEventType.ModelRequestCompleted, "Resposta estruturada recebida", model.ModelId, watch.Elapsed, true);
+                var responseKey = raw.Trim();
+                repeatedResponses[responseKey] = repeatedResponses.GetValueOrDefault(responseKey) + 1;
+                if (repeatedResponses[responseKey] >= 3)
+                {
+                    var loop = "Loop detectado: o modelo repetiu a mesma resposta estruturada 3 vezes sem progresso.";
+                    engine.Fail(loop);
+                    Emit(ExecutionEventType.JobFailed, loop, model.ModelId, success: false);
+                    break;
+                }
 
                 if (!BrainResponse.TryParse(raw, out var response, out var parseError))
                 {
