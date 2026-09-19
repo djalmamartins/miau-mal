@@ -2,9 +2,9 @@ namespace Miau.Desktop;
 
 public enum JobPhase { Received, Understanding, Inspecting, Planning, Executing, Verifying, Testing, Completed, Failed, Cancelled }
 
-public sealed record JobRequirements(bool RequiresChange, bool ReadOnly, bool RequiresValidation = true);
+public sealed record JobRequirements(bool RequiresChange, bool ReadOnly, bool RequiresValidation = true, bool RequiresVisualValidation = false);
 public sealed record JobEvidence(IReadOnlyCollection<string> FilesInspected, IReadOnlyCollection<string> FilesChanged,
-    bool HasGitDiff, bool ValidationRan, bool ValidationPassed, int Attempts, string? LastError);
+    bool HasGitDiff, bool ValidationRan, bool ValidationPassed, int Attempts, string? LastError, bool VisualValidationRan = false);
 
 public sealed class JobEngine
 {
@@ -19,9 +19,10 @@ public sealed class JobEngine
     public bool ValidationRan { get; private set; }
     public bool ValidationPassed { get; private set; }
     public string? LastError { get; private set; }
+    public bool VisualValidationRan { get; private set; }
     public bool IsTerminal => Phase is JobPhase.Completed or JobPhase.Failed or JobPhase.Cancelled;
     public event Action<JobPhase, string>? StateChanged;
-    public JobEvidence Evidence => new(inspected.ToArray(), changed.ToArray(), HasGitDiff, ValidationRan, ValidationPassed, Attempts, LastError);
+    public JobEvidence Evidence => new(inspected.ToArray(), changed.ToArray(), HasGitDiff, ValidationRan, ValidationPassed, Attempts, LastError, VisualValidationRan);
 
     public void Start() => Transition(JobPhase.Understanding, "Entendendo a tarefa");
     public void BeginInspection() => Transition(JobPhase.Inspecting, "Inspecionando o projeto");
@@ -32,6 +33,7 @@ public sealed class JobEngine
         if (result.Metadata.TryGetValue("inspected_path", out var inspectedPath) && !string.IsNullOrWhiteSpace(inspectedPath)) inspected.Add(inspectedPath);
         if (result.Metadata.TryGetValue("changed_path", out var changedPath) && !string.IsNullOrWhiteSpace(changedPath))
         { changed.Add(changedPath); Transition(JobPhase.Executing, "Editando arquivos"); }
+        if (result.Metadata.TryGetValue("visual_validation", out var visual) && visual == "true") VisualValidationRan = true;
         if (result.Tool == ToolNames.GitDiff)
         { HasGitDiff = result.Metadata.TryGetValue("has_changes", out var value) && value == "true"; Transition(JobPhase.Verifying, "Verificando alterações"); }
         if (result.Metadata.TryGetValue("validation", out var validation) && validation == "true")
@@ -54,6 +56,7 @@ public sealed class JobEngine
             if (changed.Count == 0) { reason = "A tarefa exige alteração, mas nenhuma edição foi aplicada."; return false; }
             if (!HasGitDiff) { reason = "A edição não foi comprovada por um git diff não vazio."; return false; }
             if (Requirements.RequiresValidation && (!ValidationRan || !ValidationPassed)) { reason = "A alteração ainda não passou por build ou teste apropriado."; return false; }
+            if (Requirements.RequiresVisualValidation && !VisualValidationRan) { reason = "A tarefa visual ainda não foi renderizada e inspecionada."; return false; }
         }
         reason = ""; Transition(JobPhase.Completed, "Concluído"); return true;
     }
