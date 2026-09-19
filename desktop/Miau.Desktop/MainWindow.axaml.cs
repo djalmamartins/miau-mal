@@ -12,13 +12,19 @@ public partial class MainWindow : Window
     readonly AgentService agent = new();
     readonly ProjectService projects = new();
     readonly AppState state = AppState.Load();
+    readonly JobRunner runner = new();
+    readonly GitHubJobService jobs = new();
+    readonly TaskReportService reports = new();
     CancellationTokenSource? cts;
+    CancellationTokenSource? runnerCts;
     string? workspace;
 
     public MainWindow()
     {
         InitializeComponent();
         LoadBrand();
+        AgentIdText.Text = state.AgentId;
+        runner.StatusChanged += s => Dispatcher.UIThread.Post(() => { CurrentJobText.Text = s; Activity(s); });
         RestoreWorkspace();
     }
 
@@ -74,6 +80,75 @@ public partial class MainWindow : Window
     }
 
     void Stop(object? s, RoutedEventArgs e) => cts?.Cancel();
+
+    async void AutonomousChanged(object? s, RoutedEventArgs e)
+    {
+        if (AutonomousToggle.IsChecked == true)
+        {
+            if (string.IsNullOrWhiteSpace(workspace))
+            {
+                AutonomousToggle.IsChecked = false;
+                await Message("Abra um projeto antes de ativar o modo autônomo.");
+                return;
+            }
+            state.AutonomousMode = true;
+            state.Save();
+            StopAfterTaskCheck.IsVisible = true;
+            runnerCts = new();
+            _ = RunAutonomousAsync(runnerCts.Token);
+        }
+        else
+        {
+            state.AutonomousMode = false;
+            state.Save();
+            StopAfterTaskCheck.IsVisible = false;
+            runnerCts?.Cancel();
+        }
+    }
+
+    async Task RunAutonomousAsync(CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(workspace)) return;
+        try
+        {
+            await runner.RunAsync(
+                token => jobs.AcquireNextAsync(workspace, state.AgentId, token),
+                async (job, token) =>
+                {
+                    var started = DateTimeOffset.Now;
+                    runner.StopAfterCurrentTask = StopAfterTaskCheck.IsChecked == true;
+                    await jobs.PrepareBranchAsync(workspace, job, token);
+                    string result = "";
+                    try
+                    {
+                        result = await agent.RunAsync(workspace, job.Prompt, token,
+                            ev => Dispatcher.UIThread.Post(() => Activity(ev)));
+                        var report = await reports.CreateAsync(workspace, job, state.AgentId, started, "Concluído", result, token);
+                        Activity($"Relatório gerado: {report}");
+                        await jobs.CompleteAsync(workspace, job, state.AgentId, token);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        var report = await reports.CreateAsync(workspace, job, state.AgentId, started, "Falhou", ex.Message, token);
+                        Activity($"Relatório de falha: {report}");
+                        await jobs.FailAsync(workspace, job, state.AgentId, token);
+                        throw;
+                    }
+                    await Dispatcher.UIThread.InvokeAsync(RefreshChanges);
+                },
+                TimeSpan.FromSeconds(Math.Max(10, state.NextTaskDelaySeconds)), ct);
+        }
+        catch (OperationCanceledException) { Activity("Modo autônomo interrompido."); }
+        catch (Exception ex) { Activity("ERRO NO MODO AUTÔNOMO: " + ex.Message); }
+        finally
+        {
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                AutonomousToggle.IsChecked = false;
+                StopAfterTaskCheck.IsVisible = false;
+            });
+        }
+    }
 
     async void RefreshDiff(object? s, RoutedEventArgs e) => await RefreshChanges();
 
