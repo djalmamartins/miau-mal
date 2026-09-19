@@ -27,6 +27,7 @@ public sealed class AgentService
         var readOnlyRequested = Regex.IsMatch(prompt, @"(não|nao)\s+(altere|modifique|edite|mude)", RegexOptions.IgnoreCase);
         var inspectedRoot = false;
         var inspectedCentralFile = false;
+        var analysisNudges = 0;
 
         for (var step = 0; step < 30; step++)
         {
@@ -53,8 +54,11 @@ public sealed class AgentService
             {
                 if (projectAnalysisRequested && (!inspectedRoot || !inspectedCentralFile))
                 {
+                    analysisNudges++;
+                    if (analysisNudges > 2)
+                        return "Não consegui concluir a inspeção mínima do projeto com segurança. O modelo local não executou as leituras exigidas; interrompi em vez de fingir uma análise.";
                     messages.Add(new("assistant", content));
-                    messages.Add(new("user", "A análise ainda está incompleta. Antes da resposta final, use list_files na raiz e leia pelo menos um arquivo central real do projeto (README, arquivo de projeto/solution ou entry point). Depois continue a inspeção e só então responda."));
+                    messages.Add(new("user", "A análise ainda está incompleta. Execute AGORA as ferramentas necessárias: list_files na raiz e read_file em README.md e/ou no arquivo .csproj/solution/entry point que aparecer. Não responda com intenção, promessa ou comentário; faça as chamadas de ferramenta."));
                     continue;
                 }
                 return string.IsNullOrWhiteSpace(content) ? "O modelo encerrou sem produzir uma resposta." : content;
@@ -69,12 +73,12 @@ public sealed class AgentService
                 lastSignature = signature;
                 if (repeated >= 2)
                 {
-                    messages.Add(new("user", $"A ferramenta {call.Name} foi solicitada repetidamente com os mesmos argumentos. Não a repita. Use o resultado já recebido e avance para a próxima etapa ou dê a resposta final."));
+                    messages.Add(new("user", $"A ferramenta {call.Name} foi solicitada repetidamente com os mesmos argumentos. Não a repita. Use o resultado já recebido e avance para outra ferramenta necessária ou dê a resposta final."));
                     repeated = 0;
                     continue;
                 }
 
-                if (readOnlyRequested && call.Name is "write_file" or "replace_in_file" or "run_command")
+                if (readOnlyRequested && call.Name is "write_file" or "replace_in_file")
                 {
                     messages.Add(new("user", $"A tarefa é somente leitura. A ferramenta {call.Name} está bloqueada. Use apenas list_files, read_file, search, git_status ou git_diff."));
                     continue;
