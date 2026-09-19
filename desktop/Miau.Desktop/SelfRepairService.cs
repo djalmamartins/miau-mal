@@ -1,9 +1,11 @@
+using System.Diagnostics;
 using System.Text.Json;
 
 namespace Miau.Desktop;
 
 public sealed record RepairCandidate(string Id, string Reason, int EvidenceCount, string Prompt);
 public sealed record RepairDecision(string Id, bool Accepted, string Reason, DateTimeOffset At);
+public sealed record RepairRunResult(string Id, bool Accepted, double BenchmarkBefore, double BenchmarkAfter, bool BuildPassed, bool TestsPassed, string Detail);
 
 public sealed class SelfRepairService
 {
@@ -24,6 +26,38 @@ public sealed class SelfRepairService
             .ToArray();
     }
 
+    public async Task<RepairRunResult> RunIsolatedAsync(string sourceRoot, RepairCandidate candidate, AgentService agent, string benchmarkManifest, CancellationToken ct, Action<string>? progress = null)
+    {
+        if (!Directory.Exists(Path.Combine(sourceRoot, ".git"))) throw new InvalidOperationException("Auto-reparo exige um workspace Git.");
+        var temp = Path.Combine(Path.GetTempPath(), "miau-self-repair", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.GetDirectoryName(temp)!);
+        progress?.Invoke($"RepairJob {candidate.Id}: criando workspace isolado.");
+        try
+        {
+            await Run(sourceRoot, "git", ["clone", "-q", "--no-hardlinks", sourceRoot, temp], ct);
+            var manifest = Path.Combine(temp, Path.GetRelativePath(sourceRoot, benchmarkManifest));
+            var before = await BenchmarkScore(agent, manifest, ct, progress, "antes");
+            await agent.RunAsync(temp, candidate.Prompt, ct, x => progress?.Invoke(x));
+            var build = await RunCheck(temp, "dotnet", ["build", "desktop/Miau.Desktop/Miau.Desktop.csproj"], ct);
+            var tests = build && await RunCheck(temp, "dotnet", ["test", "desktop/Miau.Desktop.Tests/Miau.Desktop.Tests.csproj", "--no-restore"], ct);
+            var after = build && tests ? await BenchmarkScore(agent, manifest, ct, progress, "depois") : 0;
+            var accepted = Accept(before, after, build, tests);
+            var detail = accepted ? "correção candidata aprovada pelo quality gate; workspace principal não foi alterado" : "correção rejeitada; regressão, build/teste ou benchmark não aprovado";
+            await RecordDecisionAsync(new(candidate.Id, accepted, detail, DateTimeOffset.Now), ct);
+            return new(candidate.Id, accepted, before, after, build, tests, detail);
+        }
+        finally { try { if (Directory.Exists(temp)) Directory.Delete(temp, true); } catch { } }
+    }
+
+    static async Task<double> BenchmarkScore(AgentService agent, string manifest, CancellationToken ct, Action<string>? progress, string phase)
+    {
+        if (!File.Exists(manifest)) throw new FileNotFoundException("Manifesto do benchmark não encontrado.", manifest);
+        var results = await agent.RunBenchmarkAsync(manifest, ct);
+        var score = results.Count == 0 ? 0 : Math.Round(results.Count(x => x.Passed) * 100d / results.Count, 1);
+        progress?.Invoke($"Benchmark {phase}: {score:0.0}% ({results.Count(x=>x.Passed)}/{results.Count}).");
+        return score;
+    }
+
     public async Task RecordDecisionAsync(RepairDecision decision, CancellationToken ct)
     {
         var dir=Path.Combine(appData,"self-repair"); Directory.CreateDirectory(dir);
@@ -33,5 +67,18 @@ public sealed class SelfRepairService
     public static bool Accept(double before, double after, bool buildPassed, bool testsPassed)
         => buildPassed && testsPassed && after >= before;
 
+    static async Task<bool> RunCheck(string root, string command, string[] args, CancellationToken ct)
+    {
+        try { await Run(root, command, args, ct); return true; } catch { return false; }
+    }
+    static async Task<string> Run(string root, string command, string[] args, CancellationToken ct)
+    {
+        var psi = new ProcessStartInfo(command) { WorkingDirectory=root, RedirectStandardOutput=true, RedirectStandardError=true, UseShellExecute=false };
+        foreach(var arg in args) psi.ArgumentList.Add(arg);
+        using var p=Process.Start(psi) ?? throw new InvalidOperationException($"Não foi possível iniciar {command}.");
+        var output=await p.StandardOutput.ReadToEndAsync(ct); var error=await p.StandardError.ReadToEndAsync(ct); await p.WaitForExitAsync(ct);
+        if(p.ExitCode!=0) throw new InvalidOperationException(DatasetService.Redact(string.IsNullOrWhiteSpace(error)?output:error));
+        return output;
+    }
     static string Slug(string s) => new(s.ToLowerInvariant().Select(c=>char.IsLetterOrDigit(c)?c:'-').ToArray());
 }
