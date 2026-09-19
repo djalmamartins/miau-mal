@@ -1,89 +1,130 @@
+using System.Diagnostics;
+
 namespace Miau.Desktop;
 
 public sealed record AgentRunResult(string Summary, JobPhase Phase, JobEvidence Evidence);
 
 public sealed class AgentOrchestrator
 {
-    readonly IModelAdapter model;
-    readonly IToolExecutor tools;
-    readonly IDatasetService dataset;
-    readonly int maxSteps;
-    public AgentOrchestrator(IModelAdapter model, IToolExecutor tools, IDatasetService dataset, int maxSteps = 40)
-    { this.model = model; this.tools = tools; this.dataset = dataset; this.maxSteps = maxSteps; }
+    readonly IModelAdapter model; readonly IToolExecutor tools; readonly IDatasetService dataset; readonly IPromptProvider prompts; readonly int maxSteps;
+    public AgentOrchestrator(IModelAdapter model, IToolExecutor tools, IDatasetService dataset, int maxSteps = 40, IPromptProvider? prompts = null)
+    { this.model = model; this.tools = tools; this.dataset = dataset; this.maxSteps = maxSteps; this.prompts = prompts ?? new VersionedPromptProvider(); }
 
-    public async Task<AgentRunResult> RunAsync(string workspace, string task, JobRequirements requirements, CancellationToken ct, Action<JobPhase, string>? progress = null)
+    public async Task<AgentRunResult> RunAsync(string workspace, string task, JobRequirements requirements, CancellationToken ct,
+        Action<JobPhase, string>? progress = null, Action<ExecutionEvent>? eventSink = null)
     {
-        var engine = new JobEngine(requirements); if (progress is not null) engine.StateChanged += progress;
-        var turns = new List<ModelTurn> { new("user", task) }; var plan = new List<string>(); var events = new List<TaskTraceEvent>();
-        engine.Start(); engine.BeginInspection();
-        var initial = await tools.ExecuteAsync(workspace, new(ToolNames.ListFiles, new() { ["path"] = "." }, "Inspeção inicial determinada pelo motor."), true, ct);
-        engine.Observe(initial); Record(events, initial);
-        if (!initial.Success) { engine.Fail(initial.Error!); return new(initial.Error!, engine.Phase, engine.Evidence); }
-
-        for (var step = 0; step < maxSteps && !engine.IsTerminal; step++)
+        var engine = new JobEngine(requirements); var trace = new List<TaskTraceEvent>(); var plan = new List<string>(); var turns = new List<ModelTurn> { new("user", task) };
+        void Emit(ExecutionEventType type, string description, string? target = null, TimeSpan? duration = null, bool? success = null, IReadOnlyDictionary<string, string>? metadata = null, string? details = null)
+            => eventSink?.Invoke(new(DateTimeOffset.Now, type, engine.Phase, description, target, duration, success, metadata, details));
+        engine.StateChanged += (phase, description) => { progress?.Invoke(phase, description); Emit(ExecutionEventType.PhaseChanged, description, phase.ToString(), success: true); };
+        Emit(ExecutionEventType.JobStarted, "Tarefa recebida", Miau1Coder.AgentName);
+        try
         {
-            ct.ThrowIfCancellationRequested();
-            var raw = await model.CompleteStepAsync(new(SystemPrompt(workspace, requirements), turns), ct);
-            if (!BrainResponse.TryParse(raw, out var response, out var parseError))
-            {
-                events.Add(new(DateTimeOffset.Now, "protocol_error", model.ModelId, false, parseError));
-                if (!engine.RecordFailure(parseError)) break;
-                turns.Add(new("assistant", raw)); turns.Add(new("user", $"PROTOCOLO INVÁLIDO: {parseError} Retorne somente um objeto JSON válido do protocolo MIAU.")); continue;
-            }
-            if (response!.Type == "plan")
-            {
-                plan.Clear(); plan.AddRange(response.Plan!.Steps); engine.BeginPlanning();
-                events.Add(new(DateTimeOffset.Now, "plan", model.ModelId, true, string.Join(" | ", plan)));
-                turns.Add(new("assistant", raw)); turns.Add(new("user", "Plano registrado. Emita a próxima action estruturada.")); continue;
-            }
-            if (response.Type == "action")
-            {
-                events.Add(new(DateTimeOffset.Now, "action_requested", response.Action!.Action, true,
-                    string.Join("; ", response.Action.Arguments.Select(x => $"{x.Key}={x.Value}"))));
-                var result = await tools.ExecuteAsync(workspace, response.Action!, requirements.ReadOnly, ct); engine.Observe(result); Record(events, result);
-                turns.Add(new("assistant", raw)); turns.Add(new("user", ToolObservation(result)));
-                if (!result.Success && !engine.RecordFailure(result.Error!)) break;
-                continue;
-            }
+            engine.Start(); engine.BeginInspection();
+            var initial = await ExecuteTool(workspace, new(ToolNames.ListFiles, new() { ["path"] = "." }, "Inspeção inicial determinada pelo motor."), true, engine, trace, Emit, ct);
+            if (!initial.Success) { engine.Fail(initial.Error!); Emit(ExecutionEventType.JobFailed, initial.Error!, success: false); return new(initial.Error!, engine.Phase, engine.Evidence); }
+            turns.Add(new("user", "INSPEÇÃO INICIAL EXECUTADA PELO SISTEMA:\n" + Trim(initial.Output) + "\nUse somente caminhos reais desta listagem e inspecione o arquivo relevante antes de editar."));
 
-            var final = response.Final!;
-            if (requirements.RequiresChange)
+            for (var step = 0; step < maxSteps && !engine.IsTerminal; step++)
             {
-                var diff = await tools.ExecuteAsync(workspace, new(ToolNames.GitDiff, [], "Verificação obrigatória do motor."), true, ct); engine.Observe(diff); Record(events, diff);
-                if (diff.Success && engine.Evidence.HasGitDiff)
+                ct.ThrowIfCancellationRequested(); var watch = Stopwatch.StartNew();
+                Emit(ExecutionEventType.ModelRequestStarted, "MIAU1-Coder processando", model.ModelId);
+                string raw;
+                try { raw = await model.CompleteStepAsync(new(prompts.GetSystemPrompt(workspace, requirements), turns), ct); }
+                catch (TimeoutException ex) { engine.Fail(ex.Message); Emit(ExecutionEventType.JobFailed, "Ollama sem resposta", model.ModelId, watch.Elapsed, false, details: ex.Message); break; }
+                Emit(ExecutionEventType.ModelRequestCompleted, "Resposta estruturada recebida", model.ModelId, watch.Elapsed, true);
+
+                if (!BrainResponse.TryParse(raw, out var response, out var parseError))
                 {
-                    var validation = await tools.ValidateAsync(workspace, ct); engine.Observe(validation); Record(events, validation);
-                    if (!validation.Success)
+                    trace.Add(new(DateTimeOffset.Now, "protocol_error", model.ModelId, false, parseError));
+                    if (!engine.RecordFailure(parseError)) break;
+                    Emit(ExecutionEventType.RetryStarted, "Resposta inválida; solicitando protocolo MIAU", model.ModelId, success: false, details: parseError);
+                    turns.Add(new("assistant", raw)); turns.Add(new("user", $"PROTOCOLO INVÁLIDO: {parseError} Retorne somente um objeto JSON válido do protocolo MIAU.")); continue;
+                }
+                if (response!.Type == "plan")
+                {
+                    plan.Clear(); plan.AddRange(response.Plan!.Steps); engine.BeginPlanning();
+                    trace.Add(new(DateTimeOffset.Now, "plan", model.ModelId, true, string.Join(" | ", plan)));
+                    turns.Add(new("assistant", raw)); turns.Add(new("user", "Plano registrado. Emita a próxima action estruturada.")); continue;
+                }
+                if (response.Type == "action")
+                {
+                    trace.Add(new(DateTimeOffset.Now, "action_requested", response.Action!.Action, true, string.Join("; ", response.Action.Arguments.Select(x => $"{x.Key}={x.Value}"))));
+                    var result = await ExecuteTool(workspace, response.Action!, requirements.ReadOnly, engine, trace, Emit, ct);
+                    turns.Add(new("assistant", raw)); turns.Add(new("user", ToolObservation(result)));
+                    if (!result.Success)
                     {
-                        if (!engine.RecordFailure(validation.Error!)) break;
-                        turns.Add(new("assistant", raw)); turns.Add(new("user", ToolObservation(validation) + "\nCorrija o erro com uma action estruturada; não finalize ainda.")); continue;
+                        if (!engine.RecordFailure(result.Error!)) break;
+                        Emit(ExecutionEventType.RetryStarted, "Corrigindo falha da ferramenta", result.Tool, success: false, details: result.Error);
+                    }
+                    continue;
+                }
+
+                var final = response.Final!;
+                if (requirements.RequiresChange)
+                {
+                    var diff = await ExecuteTool(workspace, new(ToolNames.GitDiff, [], "Verificação obrigatória do motor."), true, engine, trace, Emit, ct);
+                    if (diff.Success && engine.Evidence.HasGitDiff)
+                    {
+                        Emit(ExecutionEventType.BuildStarted, "Executando validação automática", target: "build/test"); var validationWatch = Stopwatch.StartNew();
+                        var validation = await tools.ValidateAsync(workspace, ct); engine.Observe(validation); Record(trace, validation);
+                        Emit(validation.Success ? ExecutionEventType.BuildCompleted : ExecutionEventType.BuildFailed,
+                            validation.Success ? "Build/teste aprovado" : "Build/teste falhou", validation.Tool, validationWatch.Elapsed, validation.Success, validation.Metadata, Details(validation));
+                        if (!validation.Success)
+                        {
+                            if (!engine.RecordFailure(validation.Error!)) break;
+                            Emit(ExecutionEventType.RetryStarted, "Enviando erro ao MIAU1-Coder", validation.Tool, success: false, details: validation.Error);
+                            turns.Add(new("assistant", raw)); turns.Add(new("user", ToolObservation(validation) + "\nCorrija o erro com uma action estruturada; não finalize ainda.")); continue;
+                        }
                     }
                 }
+                if (!engine.TryComplete(out var reason))
+                {
+                    if (!engine.RecordFailure(reason)) break;
+                    Emit(ExecutionEventType.RetryStarted, "Conclusão recusada pelo JobEngine", success: false, details: reason);
+                    turns.Add(new("assistant", raw)); turns.Add(new("user", $"FINAL RECUSADO PELO JOB ENGINE: {reason} Emita a action estruturada necessária.")); continue;
+                }
+                var evidence = engine.Evidence; var actions = trace.Where(x => x.Kind == "action_requested").ToArray(); var results = trace.Where(x => x.Kind == "tool").ToArray();
+                var record = new TrainingRecord(Guid.NewGuid().ToString("N"), DateTimeOffset.Now, Miau1Coder.AgentVersion, model.ModelId, DatasetService.Fingerprint(workspace),
+                    task, plan, actions, results, evidence.FilesInspected, evidence.FilesChanged,
+                    actions.Where(x => x.Name is ToolNames.ApplyPatch or ToolNames.ReplaceInFile or ToolNames.WriteFile).Select(x => x.Detail).ToArray(),
+                    results.LastOrDefault(x => x.Name == ToolNames.Build)?.Detail, results.LastOrDefault(x => x.Name == ToolNames.Test)?.Detail,
+                    trace.Where(x => !x.Success).Select(x => x.Detail).ToArray(), evidence.Attempts, final.Summary);
+                await dataset.SaveCompletedAsync(workspace, record, ct);
+                Emit(ExecutionEventType.JobCompleted, "Tarefa concluída", duration: null, success: true, metadata: new Dictionary<string, string> { ["files_changed"] = evidence.FilesChanged.Count.ToString() });
+                return new(final.Summary, engine.Phase, evidence);
             }
-            if (!engine.TryComplete(out var reason))
-            {
-                if (!engine.RecordFailure(reason)) break;
-                turns.Add(new("assistant", raw)); turns.Add(new("user", $"FINAL RECUSADO PELO JOB ENGINE: {reason} Emita a action estruturada necessária.")); continue;
-            }
-            var record = new TrainingRecord(task, Path.GetFileName(workspace), plan, engine.Evidence, events, final.Summary);
-            await dataset.SaveCompletedAsync(workspace, record, ct);
-            return new(final.Summary, engine.Phase, engine.Evidence);
+            if (!engine.IsTerminal) engine.Fail($"Limite de {maxSteps} etapas atingido.");
+            Emit(ExecutionEventType.JobFailed, engine.LastError ?? "A tarefa falhou.", success: false);
+            return new(engine.LastError ?? "A tarefa falhou.", engine.Phase, engine.Evidence);
         }
-        if (!engine.IsTerminal) engine.Fail($"Limite de {maxSteps} etapas atingido.");
-        return new(engine.LastError ?? "A tarefa falhou.", engine.Phase, engine.Evidence);
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        { engine.Cancel(); Emit(ExecutionEventType.JobCancelled, "Tarefa cancelada pelo usuário", success: false); throw; }
     }
 
+    delegate void EventEmitter(ExecutionEventType type, string description, string? target = null, TimeSpan? duration = null, bool? success = null, IReadOnlyDictionary<string, string>? metadata = null, string? details = null);
+    async Task<ToolResult> ExecuteTool(string workspace, MiauAction action, bool readOnly, JobEngine engine, List<TaskTraceEvent> trace, EventEmitter emit, CancellationToken ct)
+    {
+        var (started, completed, failed) = EventTypes(action.Action); var target = Target(action); var watch = Stopwatch.StartNew();
+        emit(started, Description(action.Action, true), target, details: string.Join("\n", action.Arguments.Select(x => $"{x.Key}: {x.Value}")));
+        var result = await tools.ExecuteAsync(workspace, action, readOnly, ct); engine.Observe(result); Record(trace, result);
+        emit(result.Success ? completed : failed, Description(action.Action, result.Success), target, watch.Elapsed, result.Success, result.Metadata, Details(result));
+        return result;
+    }
+    static (ExecutionEventType, ExecutionEventType, ExecutionEventType) EventTypes(string tool) => tool switch
+    {
+        ToolNames.GitDiff => (ExecutionEventType.DiffStarted, ExecutionEventType.DiffCompleted, ExecutionEventType.ToolFailed),
+        ToolNames.Build => (ExecutionEventType.BuildStarted, ExecutionEventType.BuildCompleted, ExecutionEventType.BuildFailed),
+        ToolNames.Test => (ExecutionEventType.TestsStarted, ExecutionEventType.TestsCompleted, ExecutionEventType.TestsFailed),
+        ToolNames.RunCommand => (ExecutionEventType.CommandStarted, ExecutionEventType.CommandCompleted, ExecutionEventType.CommandFailed),
+        _ => (ExecutionEventType.ToolStarted, ExecutionEventType.ToolCompleted, ExecutionEventType.ToolFailed)
+    };
+    static string Description(string tool, bool success) => success ? tool switch
+    { ToolNames.ReadFile => "Leu arquivo", ToolNames.WriteFile => "Criou arquivo", ToolNames.ReplaceInFile or ToolNames.ApplyPatch => "Alterou arquivo", ToolNames.GitDiff => "Diff validado", _ => $"Executou {tool}" }
+        : $"Falha em {tool}";
+    static string? Target(MiauAction action) => action.Arguments.TryGetValue("path", out var path) ? path : action.Arguments.TryGetValue("command", out var command) ? command : action.Action;
+    static string Details(ToolResult result) => result.Success ? Trim(result.Output) : result.Error ?? "Erro";
     static void Record(List<TaskTraceEvent> events, ToolResult result) => events.Add(new(DateTimeOffset.Now, "tool", result.Tool, result.Success, result.Success ? result.Output : result.Error ?? "erro"));
     static string ToolObservation(ToolResult result) => $"RESULTADO ESTRUTURADO DA FERRAMENTA {result.Tool}: success={result.Success}; output={Trim(result.Output)}; error={result.Error ?? ""}";
     static string Trim(string value) => value.Length > 30000 ? value[..30000] + "\n[truncado]" : value;
-    static string SystemPrompt(string workspace, JobRequirements requirements) => $$"""
-Você é o cérebro de programação do MIAU, operando em {{workspace}}. O sistema, não você, controla execução e conclusão.
-Responda SOMENTE com um objeto JSON, sem markdown ou prosa externa. Formatos permitidos:
-{"type":"plan","steps":["..."]}
-{"type":"action","action":"read_file","arguments":{"path":"..."},"reason":"..."}
-{"type":"final","summary":"...","files_changed":["..."]}
-Ações: list_files, read_file, search, write_file, replace_in_file, apply_patch, git_status, git_diff, build, test, run_command.
-Inspecione arquivos relevantes antes de editar. Não trate intenção textual como ação. Não faça commit ou push.
-Tarefa somente leitura: {{requirements.ReadOnly}}. Exige alteração: {{requirements.RequiresChange}}.
-""";
 }

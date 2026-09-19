@@ -7,16 +7,22 @@ public sealed class AgentService
 {
     readonly ToolExecutor tools = new();
     public string Model { get; set; } = "qwen2.5-coder:7b";
+    public TimeSpan ModelTimeout { get; set; } = TimeSpan.FromMinutes(5);
 
     public async Task<string> RunAsync(string root, string prompt, CancellationToken ct, Action<string> progress)
+        => await RunCoreAsync(root, prompt, ct, ev => progress(ev.Description + (string.IsNullOrWhiteSpace(ev.Target) ? "" : $": {ev.Target}")));
+
+    public Task<string> RunWithEventsAsync(string root, string prompt, CancellationToken ct, Action<ExecutionEvent> events)
+        => RunCoreAsync(root, prompt, ct, events);
+
+    async Task<string> RunCoreAsync(string root, string prompt, CancellationToken ct, Action<ExecutionEvent> events)
     {
         var requirements = Classify(prompt);
-        var adapter = new OllamaModelAdapter(Model);
+        var adapter = new OllamaModelAdapter(Model, requestTimeout: ModelTimeout);
         var orchestrator = new AgentOrchestrator(adapter, tools, new DatasetService());
         try
         {
-            var result = await orchestrator.RunAsync(root, prompt, requirements, ct,
-                (phase, description) => progress($"◆ {UiName(phase)}: {description}"));
+            var result = await orchestrator.RunAsync(root, prompt, requirements, ct, eventSink: events);
             if (result.Phase != JobPhase.Completed) throw new InvalidOperationException(result.Summary);
             return result.Summary;
         }
@@ -40,10 +46,4 @@ public sealed class AgentService
         var change = !readOnly && Regex.IsMatch(prompt, @"\b(altere|modifique|edite|implemente|adicione|corrija|crie|remova|refatore|faça)\b", RegexOptions.IgnoreCase);
         return new(change, readOnly, change);
     }
-    static string UiName(JobPhase phase) => phase switch
-    {
-        JobPhase.Understanding => "Entendendo", JobPhase.Inspecting => "Inspecionando", JobPhase.Planning => "Planejando",
-        JobPhase.Executing => "Editando", JobPhase.Verifying => "Verificando", JobPhase.Testing => "Testando",
-        JobPhase.Completed => "Concluído", JobPhase.Failed => "Falhou", JobPhase.Cancelled => "Cancelado", _ => "Recebido"
-    };
 }
