@@ -6,9 +6,10 @@ public sealed record EditDecision(EditMethod Method, string Reason);
 public sealed class EditPolicy
 {
     readonly Dictionary<string, int> replaceFailures = new(StringComparer.OrdinalIgnoreCase);
+    readonly HashSet<string> forceStructuredEdit = new(StringComparer.OrdinalIgnoreCase);
     public EditDecision Choose(string path, bool fileExists, bool fileRead, int changedRegions, int fileCount, bool substantialRewrite)
     {
-        if (!fileExists || substantialRewrite) return new(EditMethod.Write, !fileExists ? "arquivo novo" : "reescrita substancial");
+        if (!fileExists || substantialRewrite || forceStructuredEdit.Contains(path)) return new(EditMethod.Write, !fileExists ? "arquivo novo" : substantialRewrite ? "reescrita substancial" : "replace anterior ambíguo; edição estruturada obrigatória");
         if (fileCount > 1 || changedRegions > 1) return new(EditMethod.Patch, "múltiplas alterações localizadas");
         if (!fileRead || replaceFailures.GetValueOrDefault(path) >= 2) return new(EditMethod.Write, "replace inseguro ou repetidamente falho");
         return new(EditMethod.Replace, "alteração pequena em trecho conhecido e único");
@@ -16,10 +17,16 @@ public sealed class EditPolicy
     public bool Allow(MiauAction action)
     {
         if (action.Action != ToolNames.ReplaceInFile) return true;
-        var path = action.Arguments.GetValueOrDefault("path", ""); return replaceFailures.GetValueOrDefault(path) < 2;
+        var path = action.Arguments.GetValueOrDefault("path", ""); return !forceStructuredEdit.Contains(path) && replaceFailures.GetValueOrDefault(path) < 2;
     }
     public void Observe(MiauAction action, ToolResult result)
-    { if (action.Action == ToolNames.ReplaceInFile && !result.Success) { var path = action.Arguments.GetValueOrDefault("path", ""); replaceFailures[path] = replaceFailures.GetValueOrDefault(path) + 1; } }
+    {
+        if (action.Action != ToolNames.ReplaceInFile || result.Success) return;
+        var path = action.Arguments.GetValueOrDefault("path", "");
+        replaceFailures[path] = replaceFailures.GetValueOrDefault(path) + 1;
+        if (result.Error?.Contains("corresponde a", StringComparison.OrdinalIgnoreCase) == true)
+            forceStructuredEdit.Add(path);
+    }
 }
 
 public sealed record FailureExperience(DateTimeOffset Timestamp, string ProjectFingerprint, string Tool, string File, string ErrorType,
