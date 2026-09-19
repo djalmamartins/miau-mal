@@ -57,6 +57,7 @@ public sealed class AgentService
         var positiveText = Regex.Replace(prompt, @"\bnão\s+(altere|modifique|edite|mude)\b[^.!?]*(?:[.!?]|$)", "", RegexOptions.IgnoreCase);
         var change = Regex.IsMatch(positiveText, @"\b(altere|modifique|edite|implemente|adicione|corrija|crie|remova|refatore|faça)\b", RegexOptions.IgnoreCase);
         var readOnly = !change && explicitReadOnly;
-        return new(change, readOnly, change);
+        var visual = change && Regex.IsMatch(prompt, @"\b(site|página|pagina|layout|interface|ui|ux|visual|responsiv|html|css|frontend|front-end|tela|design)\b", RegexOptions.IgnoreCase);
+        return new(change, readOnly, change, visual);
     }
 }
