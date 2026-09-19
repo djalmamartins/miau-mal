@@ -112,6 +112,7 @@
       <Grid ColumnDefinitions="*,Auto"><ToggleSwitch x:Name="TrainingToggle" Content="Treino controlado" Checked="TrainingChanged" Unchecked="TrainingChanged"/><TextBlock Grid.Column="1" x:Name="TrainingStatusText" Text="Desativado" Classes="muted" FontSize="10" VerticalAlignment="Center"/></Grid>
       <ToggleSwitch x:Name="SelfRepairToggle" Content="Auto-reparo" Checked="SelfRepairChanged" Unchecked="SelfRepairChanged"/>
       <Button Content="Executar ciclo agora" HorizontalAlignment="Stretch" Click="RunTrainingCycle"/>
+      <Button Content="Revisar reparos" HorizontalAlignment="Stretch" Click="ReviewRepairs"/>
      </StackPanel>
     </Border>
    </StackPanel>
