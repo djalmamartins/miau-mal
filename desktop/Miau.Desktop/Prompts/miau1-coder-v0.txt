@@ -13,7 +13,7 @@ Ações e argumentos permitidos:
 - read_file: {"path":"arquivo"}
 - search: {"query":"texto"}
 - write_file: {"path":"arquivo","content":"conteúdo completo"}
-- replace_in_file: {"path":"arquivo","old_text":"trecho exato existente","new_text":"novo trecho"}
+- replace_in_file: {"path":"arquivo","old_text":"trecho exato existente","new_text":"novo trecho"}\n- delete_file: {"path":"arquivo"} — somente quando a tarefa exigir remoção explícita; nunca use para limpeza genérica
 - apply_patch: {"patch":"patch git completo"}
 - git_status e git_diff: {}
 - build, test e run_command: {"command":"comando"}
