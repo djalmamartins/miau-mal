@@ -95,7 +95,7 @@ public sealed class AgentOrchestrator
                             if (replaceFailures[target] >= 2)
                                 turns.Add(new("user", $"RECUPERAÇÃO DETERMINÍSTICA: replace_in_file falhou {replaceFailures[target]} vezes em {target}. Não use replace_in_file novamente neste arquivo nesta tarefa. Leia o arquivo atual e use write_file para gravar o conteúdo completo desejado."));
                             else
-                                turns.Add(new("user", "A edição pontual falhou. Não repita a mesma substituição. Leia novamente o arquivo para obter o conteúdo atual. Se a alteração for ampla, prefira write_file com o conteúdo completo e correto do arquivo; se for pequena, use um old_text maior que seja único."));
+                                turns.Add(new("user", "RECUPERAÇÃO OBRIGATÓRIA: esta substituição falhou. Não repita o mesmo old_text. Leia novamente o arquivo e, na próxima ação de edição deste arquivo, use write_file com o conteúdo completo correto ou apply_patch. Só volte a replace_in_file se o old_text for diferente, maior e comprovadamente único."));
                         }
                     }
                     continue;
