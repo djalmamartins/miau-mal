@@ -55,6 +55,13 @@
   <ScrollViewer><StackPanel Margin="22" Spacing="12">
    <TextBlock Text="EXECUÇÃO" FontWeight="SemiBold"/>
    <TextBlock Classes="muted" Text="Agente local • qwen2.5-coder:7b" TextWrapping="Wrap"/>
+   <Border Background="#0B0E11" BorderBrush="#282E34" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,4,0,4">
+    <ScrollViewer Height="260" VerticalScrollBarVisibility="Auto">
+     <StackPanel x:Name="ActivityFeed" Spacing="7">
+      <TextBlock Classes="muted" Text="Aguardando uma tarefa…" TextWrapping="Wrap"/>
+     </StackPanel>
+    </ScrollViewer>
+   </Border>
    <Separator Margin="0,12,0,4"/><TextBlock Text="ALTERAÇÕES" FontWeight="SemiBold"/><TextBlock x:Name="ChangeSummary" Classes="muted" Text="Nenhuma alteração" TextWrapping="Wrap"/>
    <TextBox x:Name="DiffBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap" Height="220" FontFamily="Menlo,Consolas,monospace" FontSize="10" Background="#0B0E11"/><Button Content="Atualizar diff" Click="RefreshDiff"/>
   </StackPanel></ScrollViewer>
