@@ -90,6 +90,23 @@ public sealed class AgentOrchestrator
                         turns.Add(new("user", ToolObservation(blocked) + "\nRECUPERAÇÃO OBRIGATÓRIA: não tente replace_in_file novamente. Use write_file com o conteúdo completo atual ou apply_patch."));
                         Emit(ExecutionEventType.RetryStarted, "Mudando estratégia de edição", Target(response.Action), success: false, details: blocked.Error); continue;
                     }
+                    if (response.Action.Action == ToolNames.RenderPage && requirements.RequiresVisualValidation && IsBroadVisualRewrite(task))
+                    {
+                        var htmlPath = Target(response.Action) ?? "";
+                        var cssPath = Path.Combine(Path.GetDirectoryName(htmlPath) ?? "", "style.css").Replace('\\', '/');
+                        var htmlCheck = await tools.ExecuteAsync(workspace, new(ToolNames.ReadFile, new() { ["path"] = htmlPath }, "Verificação determinística dos critérios visuais."), true, ct);
+                        var cssCheck = await tools.ExecuteAsync(workspace, new(ToolNames.ReadFile, new() { ["path"] = cssPath }, "Verificação determinística da responsividade."), true, ct);
+                        var acceptance = VisualAcceptance.Evaluate(task, htmlCheck.Success ? htmlCheck.Output : "", cssCheck.Success ? cssCheck.Output : "");
+                        if (!acceptance.Passed)
+                        {
+                            var blocked = ToolResult.Fail(ToolNames.RenderPage, "Critérios de aceitação ainda não atendidos: " + string.Join(", ", acceptance.Missing));
+                            trace.Add(new(DateTimeOffset.Now, "acceptance", ToolNames.RenderPage, false, blocked.Error!));
+                            turns.Add(new("assistant", raw));
+                            turns.Add(new("user", $"RENDERIZAÇÃO BLOQUEADA: {blocked.Error}. Implemente essas entregas concretas antes de renderizar ou inspecionar visualmente."));
+                            Emit(ExecutionEventType.RetryStarted, "Critérios de aceitação pendentes", htmlPath, success: false, details: blocked.Error);
+                            continue;
+                        }
+                    }
                     var result = await ExecuteTool(workspace, response.Action!, requirements.ReadOnly, engine, trace, Emit, ct);
                     editPolicy.Observe(response.Action, result);
                     if (!result.Success)
