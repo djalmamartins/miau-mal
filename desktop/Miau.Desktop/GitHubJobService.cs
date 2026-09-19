@@ -85,7 +85,7 @@ public sealed class GitHubJobService
 
     async Task SetOutcome(string root, AgentJob job, string agentId, string label, CancellationToken ct)
     {
-        await Run(root, "gh", ["issue","edit",job.Id,"--remove-label",$"miau-claimed-{Slug(agentId)}","--add-label",label], ct);
+        await Run(root, "gh", ["issue","edit",job.Id,"--remove-label",$"miau-claimed-{Slug(agentId)}","--remove-label","miau-working","--add-label",label], ct);
     }
 
     async Task EnsureLabelsAsync(string root, CancellationToken ct)
