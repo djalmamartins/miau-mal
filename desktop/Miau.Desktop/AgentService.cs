@@ -8,6 +8,7 @@ public sealed class AgentService
     readonly ToolExecutor tools = new();
     public string Model { get; set; } = "qwen2.5-coder:7b";
     public TimeSpan ModelTimeout { get; set; } = TimeSpan.FromMinutes(5);
+    public AgentRunResult? LastRunResult { get; private set; }
 
     public async Task<string> RunAsync(string root, string prompt, CancellationToken ct, Action<string> progress)
         => await RunCoreAsync(root, prompt, ct, ev => progress(ev.Description + (string.IsNullOrWhiteSpace(ev.Target) ? "" : $": {ev.Target}")));
@@ -22,9 +23,11 @@ public sealed class AgentService
         var orchestrator = new AgentOrchestrator(adapter, tools, new DatasetService());
         try
         {
-            var result = await orchestrator.RunAsync(root, prompt, requirements, ct, eventSink: events);
+            var result = await orchestrator.RunAsync(root, prompt, requirements, ct, eventSink: events); LastRunResult = result;
             if (result.Phase != JobPhase.Completed) throw new InvalidOperationException(result.Summary);
-            return result.Summary;
+            var evidence = result.Evidence;
+            var files = evidence.FilesChanged.Count == 0 ? "nenhum" : string.Join(", ", evidence.FilesChanged);
+            return $"{result.Summary}\n\nEvidências do JobEngine:\n- Arquivos alterados: {files}\n- Git diff: {(evidence.HasGitDiff ? "validado" : "não aplicável")}\n- Validação: {(evidence.ValidationPassed ? "aprovada" : requirements.RequiresValidation ? "ausente" : "não aplicável")}\n- Retries: {evidence.Attempts}";
         }
         catch (OperationCanceledException) { throw; }
     }

@@ -23,4 +23,7 @@ public static class Miau1Coder
 {
     public const string AgentName = "MIAU1-Coder v0";
     public const string AgentVersion = "0.1.0";
+    public const string PromptVersion = "miau1-coder-v0";
+    public const string ProtocolVersion = "miau-protocol-v1";
+    public const string DatasetSchemaVersion = "miau-dataset-v1";
 }

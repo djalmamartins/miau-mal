@@ -6,14 +6,14 @@ public sealed record AgentRunResult(string Summary, JobPhase Phase, JobEvidence 
 
 public sealed class AgentOrchestrator
 {
-    readonly IModelAdapter model; readonly IToolExecutor tools; readonly IDatasetService dataset; readonly IPromptProvider prompts; readonly int maxSteps;
+    readonly IModelAdapter model; readonly IToolExecutor tools; readonly IDatasetService dataset; readonly IPromptProvider prompts; readonly EditPolicy editPolicy; readonly FailureLearningService failures; readonly int maxSteps;
     public AgentOrchestrator(IModelAdapter model, IToolExecutor tools, IDatasetService dataset, int maxSteps = 40, IPromptProvider? prompts = null)
-    { this.model = model; this.tools = tools; this.dataset = dataset; this.maxSteps = maxSteps; this.prompts = prompts ?? new VersionedPromptProvider(); }
+    { this.model = model; this.tools = tools; this.dataset = dataset; this.maxSteps = maxSteps; this.prompts = prompts ?? new VersionedPromptProvider(); editPolicy = new(); failures = new(); }
 
     public async Task<AgentRunResult> RunAsync(string workspace, string task, JobRequirements requirements, CancellationToken ct,
         Action<JobPhase, string>? progress = null, Action<ExecutionEvent>? eventSink = null)
     {
-        var engine = new JobEngine(requirements); var trace = new List<TaskTraceEvent>(); var plan = new List<string>(); var replaceFailures = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase); var turns = new List<ModelTurn> { new("user", task) };
+        var engine = new JobEngine(requirements); var trace = new List<TaskTraceEvent>(); var plan = new List<string>(); var replaceFailures = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase); var turns = new List<ModelTurn> { new("user", task) }; var jobWatch = Stopwatch.StartNew();
         void Emit(ExecutionEventType type, string description, string? target = null, TimeSpan? duration = null, bool? success = null, IReadOnlyDictionary<string, string>? metadata = null, string? details = null)
             => eventSink?.Invoke(new(DateTimeOffset.Now, type, engine.Phase, description, target, duration, success, metadata, details));
         engine.StateChanged += (phase, description) => { progress?.Invoke(phase, description); Emit(ExecutionEventType.PhaseChanged, description, phase.ToString(), success: true); };
@@ -50,7 +50,15 @@ public sealed class AgentOrchestrator
                 if (response.Type == "action")
                 {
                     trace.Add(new(DateTimeOffset.Now, "action_requested", response.Action!.Action, true, string.Join("; ", response.Action.Arguments.Select(x => $"{x.Key}={x.Value}"))));
+                    if (!editPolicy.Allow(response.Action))
+                    {
+                        var blocked = ToolResult.Fail(response.Action.Action, "replace_in_file bloqueado após falhas repetidas; releia o arquivo e use write_file ou apply_patch.");
+                        trace.Add(new(DateTimeOffset.Now, "tool", blocked.Tool, false, blocked.Error!)); engine.RecordFailure(blocked.Error!);
+                        turns.Add(new("assistant", raw)); turns.Add(new("user", ToolObservation(blocked))); Emit(ExecutionEventType.RetryStarted, "Mudando estratégia de edição", Target(response.Action), success: false, details: blocked.Error); continue;
+                    }
                     var result = await ExecuteTool(workspace, response.Action!, requirements.ReadOnly, engine, trace, Emit, ct);
+                    editPolicy.Observe(response.Action, result);
+                    if (!result.Success) await failures.RecordAsync(workspace, response.Action, result, null, false, ct);
                     turns.Add(new("assistant", raw)); turns.Add(new("user", ToolObservation(result)));
                     if (!result.Success)
                     {
@@ -87,6 +95,18 @@ public sealed class AgentOrchestrator
                         }
                     }
                 }
+                if (requirements.RequiresChange)
+                {
+                    var actual = engine.Evidence.FilesChanged.Where(x => x != "(patch)").ToArray();
+                    var unexpected = actual.Except(final.FilesChanged, StringComparer.OrdinalIgnoreCase).ToArray();
+                    if (final.FilesChanged.Count == 0 || unexpected.Length > 0)
+                    {
+                        var scopeReason = final.FilesChanged.Count == 0 ? "Final sem files_changed; escopo não comprovado." : "Arquivos fora do escopo declarado: " + string.Join(", ", unexpected);
+                        if (!engine.RecordFailure(scopeReason)) break;
+                        Emit(ExecutionEventType.RetryStarted, "Escopo da alteração recusado", success: false, details: scopeReason);
+                        turns.Add(new("assistant", raw)); turns.Add(new("user", $"SCOPE GUARD: {scopeReason} Corrija ou declare exatamente os arquivos alterados.")); continue;
+                    }
+                }
                 if (!engine.TryComplete(out var reason))
                 {
                     if (!engine.RecordFailure(reason)) break;
@@ -100,13 +120,15 @@ public sealed class AgentOrchestrator
                     task, plan, actions, results, evidence.FilesInspected, evidence.FilesChanged,
                     actions.Where(x => x.Name is ToolNames.ApplyPatch or ToolNames.ReplaceInFile or ToolNames.WriteFile).Select(x => x.Detail).ToArray(),
                     results.LastOrDefault(x => x.Name == ToolNames.Build)?.Detail, results.LastOrDefault(x => x.Name == ToolNames.Test)?.Detail,
-                    trace.Where(x => !x.Success).Select(x => x.Detail).ToArray(), evidence.Attempts, finalSummary);
+                    trace.Where(x => !x.Success).Select(x => x.Detail).ToArray(), evidence.Attempts, finalSummary) { Duration = jobWatch.Elapsed, Success = true,
+                    RecoveryStrategy = evidence.Attempts > 0 ? "reinspeção e mudança de ação após falha" : null };
                 await dataset.SaveCompletedAsync(workspace, record, ct);
                 Emit(ExecutionEventType.JobCompleted, "Tarefa concluída", duration: null, success: true, metadata: new Dictionary<string, string> { ["files_changed"] = evidence.FilesChanged.Count.ToString() });
                 return new(finalSummary, engine.Phase, evidence);
             }
             if (!engine.IsTerminal) engine.Fail($"Limite de {maxSteps} etapas atingido.");
             Emit(ExecutionEventType.JobFailed, engine.LastError ?? "A tarefa falhou.", success: false);
+            if (dataset is DatasetService concreteDataset) await concreteDataset.SaveRejectedAsync(task, model.ModelId, engine.LastError ?? "falha", ct);
             return new(engine.LastError ?? "A tarefa falhou.", engine.Phase, engine.Evidence);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)

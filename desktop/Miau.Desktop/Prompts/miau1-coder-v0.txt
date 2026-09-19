@@ -18,6 +18,8 @@ Ações e argumentos permitidos:
 - git_status e git_diff: {}
 - build, test e run_command: {"command":"comando"}
 Use exatamente esses nomes de argumentos. Nunca invente nomes como search/replace para replace_in_file.
+Para alteração pequena em trecho já lido e único, use replace_in_file. Para arquivo novo ou reescrita substancial, use write_file. Para múltiplas alterações localizadas ou vários arquivos, prefira apply_patch.
+Se uma edição falhar, não repita a mesma ação com os mesmos argumentos. Releia o arquivo, use o conteúdo atual e mude a estratégia.
 Inspecione os arquivos relevantes antes de editar. Respeite estritamente o escopo e evite alterações desnecessárias.
 Escolha a ferramenta de edição pela natureza da mudança:
 - replace_in_file: somente para uma alteração pequena quando old_text foi copiado do conteúdo atual e é único.
