@@ -23,7 +23,9 @@ public sealed class AgentService
 
         string? lastSignature = null;
         var repeated = 0;
-        var projectAnalysisRequested = Regex.IsMatch(prompt, @"\b(analis|revis|audit|estrutura|estado|entend|ponto)\w*", RegexOptions.IgnoreCase);
+        var asksForProjectState = Regex.IsMatch(prompt, @"(estado\s+atual|status\s+do\s+projeto|em\s+que\s+ponto|pr[oó]ximos?\s+passos?|situa[cç][aã]o\s+atual)", RegexOptions.IgnoreCase);
+        var asksForCodeChange = Regex.IsMatch(prompt, @"\b(fa[cç]a|altere|modifique|edite|implemente|adicione|corrija|crie|remova|refatore)\b", RegexOptions.IgnoreCase);
+        var projectAnalysisRequested = asksForProjectState && !asksForCodeChange;
         var readOnlyRequested = Regex.IsMatch(prompt, @"(não|nao)\s+(altere|modifique|edite|mude)", RegexOptions.IgnoreCase);
         var inspectedRoot = false;
         var inspectedCentralFile = false;
