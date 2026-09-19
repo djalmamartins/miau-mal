@@ -94,6 +94,21 @@ public partial class MainWindow : Window
         }
     }
 
+    void Activity(string text)
+    {
+        var line = new TextBlock
+        {
+            Text = $"{DateTime.Now:HH:mm:ss}  {text}",
+            TextWrapping = TextWrapping.Wrap,
+            FontFamily = new FontFamily("Menlo,Consolas,monospace"),
+            FontSize = 11,
+            Opacity = .82
+        };
+        ActivityFeed.Children.Add(line);
+        while (ActivityFeed.Children.Count > 120)
+            ActivityFeed.Children.RemoveAt(0);
+    }
+
     async void Send(object? s, RoutedEventArgs e)
     {
         var prompt = PromptBox.Text?.Trim();
@@ -107,6 +122,7 @@ public partial class MainWindow : Window
         SendButton.IsEnabled = false;
         StopButton.IsEnabled = true;
         StatusText.Text = "MIAU trabalhando…";
+        Activity($"Iniciando tarefa: {prompt}");
         cts = new();
 
         var activity = new TextBlock { Text = "● Pensando e usando ferramentas…", Opacity = .65, TextWrapping = TextWrapping.Wrap };
@@ -114,13 +130,18 @@ public partial class MainWindow : Window
         try
         {
             var result = await agent.RunAsync(workspace, prompt, cts.Token,
-                ev => Dispatcher.UIThread.Post(() => activity.Text = ev));
+                ev => Dispatcher.UIThread.Post(() =>
+                {
+                    activity.Text = ev;
+                    Activity(ev);
+                }));
             activity.Text = "";
             Add("MIAU", result);
+            Activity("Tarefa concluída.");
             await RefreshChanges();
         }
-        catch (OperationCanceledException) { activity.Text = "Tarefa interrompida."; }
-        catch (Exception ex) { activity.Text = "Erro: " + ex.Message; }
+        catch (OperationCanceledException) { activity.Text = "Tarefa interrompida."; Activity("Tarefa interrompida."); }
+        catch (Exception ex) { activity.Text = "Erro: " + ex.Message; Activity("ERRO: " + ex.Message); }
         finally
         {
             SendButton.IsEnabled = true;
