@@ -28,6 +28,34 @@ public sealed class AgentService
         var inspectedRoot = false;
         var inspectedCentralFile = false;
         var analysisNudges = 0;
+        if (projectAnalysisRequested)
+        {
+            progress("▸ Pré-inspeção determinística do projeto");
+            var rootListing = ListFiles(Path.GetFullPath(root));
+            inspectedRoot = true;
+            messages.Add(new("user", $"INSPEÇÃO AUTOMÁTICA — RAIZ DO PROJETO:\n{Trim(rootListing)}"));
+
+            var candidates = new List<string>();
+            foreach (var name in new[] { "README.md", "README", "Program.cs", "App.axaml.cs", "MainWindow.axaml.cs" })
+            {
+                var direct = Path.Combine(root, name);
+                if (File.Exists(direct)) candidates.Add(direct);
+            }
+            candidates.AddRange(Directory.EnumerateFiles(root, "*.csproj", SearchOption.AllDirectories).Where(p => !Ignored(p)).Take(3));
+            candidates.AddRange(Directory.EnumerateFiles(root, "*.sln*", SearchOption.AllDirectories).Where(p => !Ignored(p)).Take(2));
+            foreach (var file in candidates.Distinct(StringComparer.OrdinalIgnoreCase).Take(5))
+            {
+                ct.ThrowIfCancellationRequested();
+                try
+                {
+                    var body = await File.ReadAllTextAsync(file, ct);
+                    messages.Add(new("user", $"INSPEÇÃO AUTOMÁTICA — {Path.GetRelativePath(root, file)}:\n{Trim(body)}"));
+                    inspectedCentralFile = true;
+                    progress($"▸ Lendo automaticamente: {Path.GetRelativePath(root, file)}");
+                }
+                catch { }
+            }
+        }
 
         for (var step = 0; step < 30; step++)
         {
