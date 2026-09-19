@@ -30,6 +30,7 @@ public sealed class AgentService
         var inspectedRoot = false;
         var inspectedCentralFile = false;
         var analysisNudges = 0;
+        var actionNudges = 0;
         if (projectAnalysisRequested)
         {
             progress("▸ Pré-inspeção determinística do projeto");
@@ -152,6 +153,16 @@ public sealed class AgentService
 
             if (calls.Count == 0)
             {
+                if (asksForCodeChange && Regex.IsMatch(content, @"\b(vou|irei|vamos)\b.{0,80}\b(execut|usar|verific|analis|ler|abrir|alter|modific|edit)", RegexOptions.IgnoreCase | RegexOptions.Singleline))
+                {
+                    actionNudges++;
+                    if (actionNudges > 3)
+                        return "A tarefa exigia uma alteração, mas o modelo ficou descrevendo a próxima ação sem executá-la. Interrompi para evitar fingir progresso.";
+                    messages.Add(new("assistant", content));
+                    messages.Add(new("user", "Não descreva a próxima ação. Execute-a agora por tool_call. Continue usando ferramentas até a alteração solicitada estar realmente aplicada e verificada; só então responda ao usuário."));
+                    continue;
+                }
+
                 if (projectAnalysisRequested && (!inspectedRoot || !inspectedCentralFile))
                 {
                     analysisNudges++;
