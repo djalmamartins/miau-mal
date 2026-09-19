@@ -71,11 +71,18 @@
    </Grid>
    <TextBlock x:Name="CurrentJobText" Classes="muted" Text="Aguardando trabalho" TextWrapping="Wrap"/>
    <Border Background="#0B0E11" BorderBrush="#282E34" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,4,0,4">
-    <ScrollViewer x:Name="ActivityScroller" Height="260" VerticalScrollBarVisibility="Auto">
+    <Grid RowDefinitions="Auto,*">
+     <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,9">
+      <Ellipse x:Name="ExecutionDot" Width="9" Height="9" Fill="#7D858D" VerticalAlignment="Center"/>
+      <TextBlock Grid.Column="1" x:Name="ExecutionStateText" Text="Aguardando" Classes="muted" FontSize="11" Margin="8,0,0,0" VerticalAlignment="Center"/>
+      <TextBlock Grid.Column="2" x:Name="ExecutionElapsedText" Text="" Classes="muted" FontSize="10" VerticalAlignment="Center"/>
+     </Grid>
+    <ScrollViewer Grid.Row="1" x:Name="ActivityScroller" Height="235" VerticalScrollBarVisibility="Auto">
      <StackPanel x:Name="ActivityFeed" Spacing="7">
       <TextBlock Classes="muted" Text="Aguardando uma tarefa…" TextWrapping="Wrap"/>
      </StackPanel>
     </ScrollViewer>
+    </Grid>
    </Border>
    <Separator Margin="0,12,0,4"/><TextBlock Text="ALTERAÇÕES" FontWeight="SemiBold"/><TextBlock x:Name="ChangeSummary" Classes="muted" Text="Nenhuma alteração" TextWrapping="Wrap"/>
    <TextBox x:Name="DiffBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap" Height="220" FontFamily="Menlo,Consolas,monospace" FontSize="10" Background="#0B0E11"/><Button Content="Atualizar diff" Click="RefreshDiff"/>
