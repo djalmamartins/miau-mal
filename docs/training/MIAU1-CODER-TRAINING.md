@@ -6,10 +6,13 @@ O MIAU1-Coder v0 é um agente determinístico composto por JobEngine, AgentOrche
 
 ## Dados e curadoria
 
+Memória não é dataset: memória apoia decisões locais futuras. Dataset não é benchmark: apenas experiências reais aprovadas podem virar material de treino, enquanto avaliações permanecem isoladas. Benchmark não é fine-tuning: nesta fase nenhum peso do modelo é alterado.
+
 - `memory/{projectFingerprint}`: contexto recuperável; não altera pesos.
 - `dataset/completed`: tarefas validadas, schema `miau-dataset-v1`.
 - `dataset/recovery`: ação falha, erro e estratégia de recuperação.
 - `dataset/rejected`: reservado para conclusões recusadas e violações de escopo.
+- `dataset/review`: tarefas concluídas que ainda não atingiram o limiar de qualidade.
 
 Registros positivos recebem score técnico de 0–100. Exportações para treino devem exigir score mínimo, revisão de segredos e amostragem manual de patches. JSONL é o formato canônico e pode ser convertido depois para instruction tuning, SFT ou LoRA/QLoRA.
 
