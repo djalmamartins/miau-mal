@@ -46,11 +46,12 @@
    <ScrollViewer x:Name="Scroller" IsVisible="False" VerticalScrollBarVisibility="Auto"><StackPanel x:Name="Thread" Margin="46,30" Spacing="14"/></ScrollViewer>
   </Grid>
   <Border Grid.Row="2" Margin="28,12,28,24" Padding="14" CornerRadius="18" Background="#12171C" BorderBrush="#2A3138" BorderThickness="1">
-   <Grid RowDefinitions="Auto,Auto">
-    <TextBox x:Name="PromptBox" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="82" Background="#0D1115" BorderBrush="#242B32" BorderThickness="1" CornerRadius="10" Padding="12" Watermark="Digite sua mensagem..."/>
-    <Grid Grid.Row="1" ColumnDefinitions="Auto,Auto,*,Auto" Margin="0,11,0,0">
-     <Button Classes="icon" Content="＋" ToolTip.Tip="Adicionar arquivo"/>
-     <Button Grid.Column="1" Classes="icon" Content="▧" Margin="8,0,0,0" ToolTip.Tip="Biblioteca"/>
+   <Grid RowDefinitions="Auto,Auto,Auto">
+    <TextBlock x:Name="AttachmentText" Classes="muted" FontSize="11" IsVisible="False" TextWrapping="Wrap" Margin="4,0,4,8"/>
+    <TextBox Grid.Row="1" x:Name="PromptBox" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="82" Background="#0D1115" BorderBrush="#242B32" BorderThickness="1" CornerRadius="10" Padding="12" Watermark="Digite sua mensagem..."/>
+    <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,*,Auto" Margin="0,11,0,0">
+     <Button Classes="icon" Content="＋" ToolTip.Tip="Adicionar arquivo ou imagem" Click="AddAttachment"/>
+     <Button Grid.Column="1" Classes="icon" Content="▧" Margin="8,0,0,0" ToolTip.Tip="Adicionar vários arquivos" Click="AddLibrary"/>
      <TextBlock Grid.Column="2" Classes="muted" Text="Agente local" VerticalAlignment="Center" Margin="12,0"/>
      <Button Grid.Column="3" x:Name="SendButton" Classes="icon" Content="➜" ToolTip.Tip="Enviar" Click="Send"/>
      <Button Grid.Column="3" x:Name="StopButton" Classes="icon" Content="■" ToolTip.Tip="Parar" IsVisible="False" Click="Stop"/>
