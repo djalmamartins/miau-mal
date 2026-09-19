@@ -56,13 +56,14 @@ public sealed class AgentService
             // Put the evidence rule after the inspected files too. Small local models overweight older/root
             // documents, so the final instruction must explicitly reconcile them with the active desktop code.
             var selectedAnalysisFiles = candidates.Distinct(StringComparer.OrdinalIgnoreCase).Take(8).ToList();
+            var snapshotBodies = new List<string>();
             foreach (var file in selectedAnalysisFiles)
             {
                 ct.ThrowIfCancellationRequested();
                 try
                 {
                     var body = await File.ReadAllTextAsync(file, ct);
-                    messages.Add(new("user", $"INSPEÇÃO AUTOMÁTICA — {Path.GetRelativePath(root, file)}:\n{Trim(body)}"));
+                    snapshotBodies.Add($"--- {Path.GetRelativePath(root, file)} ---\n{Trim(body)}");
                     inspectedCentralFile = true;
                     progress($"▸ Lendo automaticamente: {Path.GetRelativePath(root, file)}");
                 }
@@ -90,7 +91,13 @@ public sealed class AgentService
             desktopFacts.Add("O AgentService conversa com Ollama pela API local /api/chat; inferência local já está integrada via Ollama.");
             desktopFacts.Add("WinUI 3 e llama.cpp/GGUF pertencem a planejamento histórico e NÃO são o estado/rumo ativo do desktop atual.");
             desktopFacts.Add("git_status e git_diff são inspeções Git, NÃO testes executados.");
-            messages.Add(new("user", "SNAPSHOT ESTRUTURADO — FATOS DO ESTADO ATUAL (estes fatos têm precedência sobre conhecimento anterior e documentação histórica):\n- " + string.Join("\n- ", desktopFacts) + $"\nArquivos atuais lidos: {inspectedNames}. Responda estritamente a partir deste snapshot e do código atual. Para 'próximos passos', derive lacunas do desktop atual; não ressuscite planos históricos."));
+            // Replace the original conversation for project-state analysis. Keeping the generic system
+            // prompt plus many historical/tool messages lets small models anchor on stale plans.
+            messages.Clear();
+            messages.Add(new("system", SystemPrompt + $"\n\nVocê está analisando SOMENTE o estado atual do aplicativo MIAU Desktop em {root}. O snapshot abaixo foi produzido pelo próprio agente a partir do código da branch ativa e é a fonte autoritativa. Ignore planos históricos conflitantes. Não cite WinUI 3, llama.cpp/GGUF ou reconstrução da CLI como próximos passos. git_status/git_diff não são testes."));
+            messages.Add(new("user", prompt + "\n\nSNAPSHOT ESTRUTURADO — FATOS ATUAIS:\n- " + string.Join("\n- ", desktopFacts) + $"\nArquivos lidos: {inspectedNames}\n\nCÓDIGO ATUAL INSPECIONADO:\n" + string.Join("\n\n", snapshotBodies) + "\n\nResponda com: estado atual comprovado, 3 próximos passos derivados do desktop atual e observações técnicas. Não invente testes executados."));
+            inspectedRoot = true;
+            inspectedCentralFile = snapshotBodies.Count > 0;
         }
 
         for (var step = 0; step < 30; step++)
