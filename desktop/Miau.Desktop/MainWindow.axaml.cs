@@ -258,6 +258,13 @@ public partial class MainWindow : Window
         if (!executionTimer.IsEnabled) SetExecutionState("running");
     }
 
+    void ShowEnginePhase(string message)
+    {
+        var separator = message.IndexOf(':');
+        if (!message.StartsWith("◆ ", StringComparison.Ordinal) || separator < 0) return;
+        ExecutionStateText.Text = message[2..separator];
+    }
+
     void UpdateExecutionHeartbeat()
     {
         var now = DateTimeOffset.Now;
@@ -326,6 +333,7 @@ public partial class MainWindow : Window
                 ev => Dispatcher.UIThread.Post(() =>
                 {
                     PulseExecution();
+                    ShowEnginePhase(ev);
                     activity.Text = ev;
                     Activity(ev);
                 }));
