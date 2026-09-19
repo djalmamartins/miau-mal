@@ -307,9 +307,9 @@ public partial class MainWindow : Window
         {
             Content = "⧉",
             Padding = new Avalonia.Thickness(6, 2),
-            Background = Brushes.Transparent,
-            ToolTip = "Copiar"
+            Background = Brushes.Transparent
         };
+        ToolTip.SetTip(copy, "Copiar");
         copy.Click += async (_, _) =>
         {
             var top = GetTopLevel(this);
