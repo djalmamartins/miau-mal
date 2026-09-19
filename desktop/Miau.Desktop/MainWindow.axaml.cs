@@ -194,8 +194,8 @@ public partial class MainWindow : Window
         Scroller.IsVisible = true;
         Add("Você", prompt);
         PromptBox.Text = "";
-        SendButton.IsEnabled = false;
-        StopButton.IsEnabled = true;
+        SendButton.IsVisible = false;
+        StopButton.IsVisible = true;
         StatusText.Text = "MIAU trabalhando…";
         Activity($"Iniciando tarefa: {prompt}");
         cts = new();
@@ -219,8 +219,8 @@ public partial class MainWindow : Window
         catch (Exception ex) { activity.Text = "Erro: " + ex.Message; Activity("ERRO: " + ex.Message); }
         finally
         {
-            SendButton.IsEnabled = true;
-            StopButton.IsEnabled = false;
+            SendButton.IsVisible = true;
+            StopButton.IsVisible = false;
             StatusText.Text = "Ollama local";
             cts?.Dispose();
             cts = null;
@@ -229,8 +229,42 @@ public partial class MainWindow : Window
 
     void Add(string who, string text)
     {
-        Thread.Children.Add(new TextBlock { Text = who, FontWeight = FontWeight.SemiBold });
-        Thread.Children.Add(new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, MaxWidth = 820, HorizontalAlignment = HorizontalAlignment.Left });
+        var mine = who == "Você";
+        var body = new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, MaxWidth = 720 };
+        var copy = new Button
+        {
+            Content = "⧉",
+            Padding = new Avalonia.Thickness(6, 2),
+            Background = Brushes.Transparent,
+            ToolTip = "Copiar"
+        };
+        copy.Click += async (_, _) =>
+        {
+            var top = GetTopLevel(this);
+            if (top?.Clipboard is not null) await top.Clipboard.SetTextAsync(text);
+        };
+
+        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+        header.Children.Add(new TextBlock { Text = who, FontWeight = FontWeight.SemiBold, Opacity = .82 });
+        Grid.SetColumn(copy, 1);
+        header.Children.Add(copy);
+
+        var stack = new StackPanel { Spacing = 7 };
+        stack.Children.Add(header);
+        stack.Children.Add(body);
+
+        var bubble = new Border
+        {
+            Child = stack,
+            Background = new SolidColorBrush(Color.Parse(mine ? "#1A2026" : "#101418")),
+            BorderBrush = new SolidColorBrush(Color.Parse(mine ? "#303841" : "#242B31")),
+            BorderThickness = new Avalonia.Thickness(1),
+            CornerRadius = new Avalonia.CornerRadius(12),
+            Padding = new Avalonia.Thickness(14, 10),
+            MaxWidth = 780,
+            HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Left
+        };
+        Thread.Children.Add(bubble);
     }
 
     async Task Message(string text)
