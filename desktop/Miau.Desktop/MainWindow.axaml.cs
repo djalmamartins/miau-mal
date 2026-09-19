@@ -226,16 +226,17 @@ public partial class MainWindow : Window
 
     async void Send(object? s, RoutedEventArgs e)
     {
-        var prompt = PromptBox.Text?.Trim();
-        if (attachments.Count > 0)
-            prompt = $"{prompt}\n\nARQUIVOS ANEXADOS PELO USUÁRIO:\n{string.Join("\n", attachments.Select(x => "- " + x))}\nUse-os como contexto quando forem legíveis; imagens são anexos de referência e não devem ser inventadas como texto.";
-        if (string.IsNullOrWhiteSpace(prompt)) return;
+        var userPrompt = PromptBox.Text?.Trim();
+        if (string.IsNullOrWhiteSpace(userPrompt) && attachments.Count == 0) return;
+        userPrompt ??= "Analise os anexos.";
+        var prompt = userPrompt;
+        if (attachments.Count > 0) prompt += await BuildAttachmentContext();
         if (string.IsNullOrWhiteSpace(workspace)) { await Message("Abra um projeto primeiro."); return; }
 
         Welcome.IsVisible = false;
         Scroller.IsVisible = true;
-        Add("Você", prompt);
-        await conversations.AppendAsync("Você", prompt, workspace);
+        Add("Você", userPrompt + (attachments.Count > 0 ? $"\n📎 {string.Join(", ", attachments.Select(Path.GetFileName))}" : ""));
+        await conversations.AppendAsync("Você", userPrompt, workspace);
         PromptBox.Text = "";
         attachments.Clear();
         AttachmentText.Text = "";
@@ -275,6 +276,27 @@ public partial class MainWindow : Window
             cts?.Dispose();
             cts = null;
         }
+    }
+
+    async Task<string> BuildAttachmentContext()
+    {
+        var parts = new List<string> { "\n\nANEXOS FORNECIDOS PELO USUÁRIO:" };
+        foreach (var path in attachments)
+        {
+            var ext = Path.GetExtension(path).ToLowerInvariant();
+            if (new[] { ".txt", ".md", ".json", ".cs", ".js", ".ts", ".tsx", ".jsx", ".css", ".html", ".xml", ".yml", ".yaml", ".sql", ".py" }.Contains(ext))
+            {
+                try
+                {
+                    var text = await File.ReadAllTextAsync(path);
+                    if (text.Length > 12000) text = text[..12000] + "\n[anexo truncado]";
+                    parts.Add($"\n--- {Path.GetFileName(path)} ---\n{text}");
+                }
+                catch (Exception ex) { parts.Add($"\n- {Path.GetFileName(path)}: não foi possível ler ({ex.Message})"); }
+            }
+            else parts.Add($"\n- {Path.GetFileName(path)} ({ext}): arquivo anexado; conteúdo binário/visual não convertido para texto nesta versão.");
+        }
+        return string.Join("", parts);
     }
 
     void Add(string who, string text)
