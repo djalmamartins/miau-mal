@@ -29,11 +29,14 @@ public sealed class GitHubJobService
             var claims = vd.RootElement.GetProperty("labels").EnumerateArray()
                 .Select(x => x.GetProperty("name").GetString() ?? "")
                 .Where(x => x.StartsWith("miau-claimed-", StringComparison.OrdinalIgnoreCase)).OrderBy(x => x).ToArray();
-            if (claims.Length != 1 || !claims[0].Equals(claim, StringComparison.OrdinalIgnoreCase))
+            if (claims.Length == 0 || !claims[0].Equals(claim, StringComparison.OrdinalIgnoreCase))
             {
                 await Run(root, "gh", ["issue","edit",number.ToString(),"--remove-label",claim], ct, false);
                 continue;
             }
+            // Labels are not an atomic lock. If claims race, the sorted first claim wins.
+            foreach (var duplicate in claims.Skip(1))
+                await Run(root, "gh", ["issue","edit",number.ToString(),"--remove-label",duplicate], ct, false);
             await Run(root, "gh", ["issue","edit",number.ToString(),"--add-label","miau-working"], ct);
             var branch = $"miau/{Slug(agentId)}/{number}-{Slug(title,42)}";
             return new AgentJob(number.ToString(), $"#{number} {title}", $"Implemente a GitHub issue #{number}.\n\n{body}", branch);
