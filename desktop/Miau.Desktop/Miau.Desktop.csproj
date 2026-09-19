@@ -11,8 +11,9 @@
     <PackageReference Include="Avalonia.Desktop" Version="11.3.7" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.7" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.7" />
-    <!-- Avalonia's Unix desktop stack can resolve an older vulnerable transitive build.
-         Pin the patched 0.21 servicing release instead of suppressing NU1903. -->
     <PackageReference Include="Tmds.DBus.Protocol" Version="0.21.3" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="Assets/miau-logo.base64" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
