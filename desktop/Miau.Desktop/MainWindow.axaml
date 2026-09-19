@@ -71,7 +71,7 @@
    </Grid>
    <TextBlock x:Name="CurrentJobText" Classes="muted" Text="Aguardando trabalho" TextWrapping="Wrap"/>
    <Border Background="#0B0E11" BorderBrush="#282E34" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,4,0,4">
-    <ScrollViewer Height="260" VerticalScrollBarVisibility="Auto">
+    <ScrollViewer x:Name="ActivityScroller" Height="260" VerticalScrollBarVisibility="Auto">
      <StackPanel x:Name="ActivityFeed" Spacing="7">
       <TextBlock Classes="muted" Text="Aguardando uma tarefa…" TextWrapping="Wrap"/>
      </StackPanel>
