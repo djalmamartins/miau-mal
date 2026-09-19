@@ -32,6 +32,12 @@ public sealed class AgentService
         catch (OperationCanceledException) { throw; }
     }
 
+    public async Task<IReadOnlyList<BenchmarkResult>> RunBenchmarkAsync(string manifest, CancellationToken ct)
+    {
+        var adapter = new OllamaModelAdapter(Model, requestTimeout: ModelTimeout);
+        return await new BenchmarkService().RunAsync(manifest, adapter, ct);
+    }
+
     public async Task<string> GetGitStatusAsync(string root, CancellationToken ct)
     {
         var result = await tools.ExecuteAsync(root, new(ToolNames.GitStatus, [], null), true, ct);
