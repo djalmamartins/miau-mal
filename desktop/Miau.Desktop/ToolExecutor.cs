@@ -33,6 +33,7 @@ public sealed class ToolExecutor : IToolExecutor
                 ToolNames.ReadFile => ToolResult.Ok(action.Action, await File.ReadAllTextAsync(SafePath(workspace, Arg("path")), ct), ("inspected_path", Arg("path"))),
                 ToolNames.Search => ToolResult.Ok(action.Action, Search(workspace, Arg("query")), ("inspected_path", ".")),
                 ToolNames.FetchUrl => await FetchUrl(Arg("url"), ct),
+                ToolNames.RenderPage => await RenderPage(workspace, Arg("path", "index.html"), ct),
                 ToolNames.WriteFile => await Write(action.Action, SafePath(workspace, Arg("path")), Arg("content"), Arg("path"), ct),
                 ToolNames.ReplaceInFile => await Replace(action.Action, SafePath(workspace, Arg("path")), Arg("old_text"), Arg("new_text"), Arg("path"), ct),
                 ToolNames.DeleteFile => Delete(action.Action, SafePath(workspace, Arg("path")), Arg("path")),
@@ -46,6 +47,39 @@ public sealed class ToolExecutor : IToolExecutor
             };
         }
         catch (Exception ex) when (ex is not OperationCanceledException) { return ToolResult.Fail(action.Action, ex.Message); }
+    }
+
+    static async Task<ToolResult> RenderPage(string workspace, string relative, CancellationToken ct)
+    {
+        var page = SafePath(workspace, relative);
+        if (!File.Exists(page)) return ToolResult.Fail(ToolNames.RenderPage, "Página não encontrada: " + relative);
+        var outputDir = Path.Combine(Path.GetTempPath(), "miau-visual");
+        Directory.CreateDirectory(outputDir);
+        var screenshot = Path.Combine(outputDir, $"render-{Guid.NewGuid():N}.png");
+        var browser = OperatingSystem.IsMacOS() ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" :
+            OperatingSystem.IsWindows() ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Google", "Chrome", "Application", "chrome.exe") : "google-chrome";
+        if (Path.IsPathRooted(browser) && !File.Exists(browser))
+            return ToolResult.Fail(ToolNames.RenderPage, "Google Chrome não encontrado para renderização visual.");
+        var psi = new ProcessStartInfo(browser)
+        {
+            RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false
+        };
+        psi.ArgumentList.Add("--headless=new");
+        psi.ArgumentList.Add("--disable-gpu");
+        psi.ArgumentList.Add("--hide-scrollbars");
+        psi.ArgumentList.Add("--window-size=1440,1200");
+        psi.ArgumentList.Add("--screenshot=" + screenshot);
+        psi.ArgumentList.Add(new Uri(page).AbsoluteUri);
+        using var process = Process.Start(psi) ?? throw new InvalidOperationException("Não foi possível iniciar o navegador.");
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(30));
+        await process.WaitForExitAsync(timeout.Token);
+        if (process.ExitCode != 0 || !File.Exists(screenshot))
+            return ToolResult.Fail(ToolNames.RenderPage, "Chrome não conseguiu renderizar a página.");
+        var info = new FileInfo(screenshot);
+        return ToolResult.Ok(ToolNames.RenderPage,
+            $"Página renderizada em 1440x1200. Screenshot: {screenshot} ({info.Length} bytes).",
+            ("visual_validation", "true"), ("screenshot_path", screenshot), ("rendered_path", relative));
     }
 
     static async Task<ToolResult> FetchUrl(string value, CancellationToken ct)
