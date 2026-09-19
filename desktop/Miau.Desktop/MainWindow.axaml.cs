@@ -10,6 +10,8 @@ namespace Miau.Desktop;
 public partial class MainWindow : Window
 {
     readonly AgentService agent = new();
+    readonly ProjectService projects = new();
+    readonly AppState state = AppState.Load();
     CancellationTokenSource? cts;
     string? workspace;
 
@@ -17,6 +19,24 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         LoadBrand();
+        RestoreWorkspace();
+    }
+
+    async void RestoreWorkspace()
+    {
+        if (!string.IsNullOrWhiteSpace(state.LastWorkspace) && Directory.Exists(state.LastWorkspace))
+            await SetWorkspace(state.LastWorkspace);
+    }
+
+    async Task SetWorkspace(string path)
+    {
+        workspace = path;
+        state.RememberProject(path);
+        var info = await projects.InspectAsync(path);
+        WorkspaceText.Text = info.IsGit && !string.IsNullOrWhiteSpace(info.Branch)
+            ? $"{info.Name}\n{info.Branch}"
+            : info.Name;
+        await RefreshChanges();
     }
 
     void LoadBrand()
@@ -41,9 +61,7 @@ public partial class MainWindow : Window
         var folders = await StorageProvider.OpenFolderPickerAsync(new() { Title = "Abrir projeto", AllowMultiple = false });
         if (folders.Count > 0)
         {
-            workspace = folders[0].Path.LocalPath;
-            WorkspaceText.Text = workspace;
-            await RefreshChanges();
+            await SetWorkspace(folders[0].Path.LocalPath);
         }
     }
 
