@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace Miau.Desktop;
 
 public sealed record TrainingSchedule(bool Enabled = false, int IntervalHours = 6, int MaxTasksPerCycle = 3);
-public sealed record TrainingCycleResult(DateTimeOffset StartedAt, int Attempted, int Completed, int Failed);
+public sealed record TrainingCycleResult(DateTimeOffset StartedAt, int Attempted, int Completed, int Failed, int Rejected = 0);
 
 public sealed class TrainingScheduler
 {
@@ -18,7 +18,7 @@ public sealed class TrainingScheduler
     public async Task<TrainingCycleResult> RunCycleAsync(string root, TrainingSchedule schedule, CancellationToken ct, Action<string>? progress = null)
     {
         if (!schedule.Enabled) return new(DateTimeOffset.Now, 0, 0, 0);
-        var started = DateTimeOffset.Now; var attempted = 0; var completed = 0; var failed = 0;
+        var started = DateTimeOffset.Now; var attempted = 0; var completed = 0; var failed = 0; var rejected = 0;
         foreach (var task in Tasks().Take(Math.Clamp(schedule.MaxTasksPerCycle, 1, 10)))
         {
             ct.ThrowIfCancellationRequested(); attempted++;
@@ -28,13 +28,14 @@ public sealed class TrainingScheduler
                 await SeedAsync(temp, task.Id, ct);
                 progress?.Invoke($"Treino {task.Id}: {task.Title}");
                 await agent.RunAsync(temp, task.Prompt, ct, x => progress?.Invoke(x));
-                completed++;
+                if (await VerifyAsync(temp, task.Id, ct)) completed++;
+                else { rejected++; progress?.Invoke($"Treino {task.Id} rejeitado: resultado não corresponde ao objetivo controlado."); }
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex) { failed++; progress?.Invoke($"Treino {task.Id} falhou: {DatasetService.Redact(ex.Message)}"); }
             finally { try { Directory.Delete(temp, true); } catch { } }
         }
-        var result = new TrainingCycleResult(started, attempted, completed, failed);
+        var result = new TrainingCycleResult(started, attempted, completed, failed, rejected);
         var dir = Path.Combine(appData, "training"); Directory.CreateDirectory(dir);
         await File.AppendAllTextAsync(Path.Combine(dir, "cycles.jsonl"), JsonSerializer.Serialize(result) + Environment.NewLine, ct);
         return result;
@@ -48,6 +49,21 @@ public sealed class TrainingScheduler
         yield return ("delete", "Remoção segura", "Remova somente obsolete.txt. Não altere nenhum outro arquivo.");
         yield return ("multi", "Alteração multi-arquivo", "Altere app.txt para conter app=v2 e test.txt para conter test=v2. Não altere outros arquivos.");
         yield return ("scope", "Respeito de escopo", "Altere somente allowed.txt para conter allowed=v2. Não altere protected.txt.");
+    }
+
+    static async Task<bool> VerifyAsync(string root, string id, CancellationToken ct)
+    {
+        static async Task<string> Read(string root, string file, CancellationToken ct) => (await File.ReadAllTextAsync(Path.Combine(root,file),ct)).Trim();
+        return id switch
+        {
+            "edit" => (await Read(root,"README.md",ct)).EndsWith("MIAU training edit OK", StringComparison.Ordinal),
+            "create" => File.Exists(Path.Combine(root,"training-result.txt")) && await Read(root,"training-result.txt",ct) == "MIAU training create OK",
+            "recover" => await Read(root,"config.txt",ct) == "mode=new",
+            "delete" => !File.Exists(Path.Combine(root,"obsolete.txt")),
+            "multi" => await Read(root,"app.txt",ct) == "app=v2" && await Read(root,"test.txt",ct) == "test=v2",
+            "scope" => await Read(root,"allowed.txt",ct) == "allowed=v2" && await Read(root,"protected.txt",ct) == "do-not-touch",
+            _ => false
+        };
     }
 
     static async Task SeedAsync(string root, string id, CancellationToken ct)
