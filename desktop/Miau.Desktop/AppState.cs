@@ -24,7 +24,16 @@ public sealed class AppState
         try
         {
             if (File.Exists(FilePath))
-                return JsonSerializer.Deserialize<AppState>(File.ReadAllText(FilePath)) ?? new();
+            {
+                var loaded = JsonSerializer.Deserialize<AppState>(File.ReadAllText(FilePath)) ?? new();
+                // Migrate the former 6-hour default without overriding explicit custom schedules.
+                if (loaded.TrainingIntervalHours == 6)
+                {
+                    loaded.TrainingIntervalHours = 24;
+                    loaded.Save();
+                }
+                return loaded;
+            }
         }
         catch { }
         return new();
