@@ -15,6 +15,7 @@ public partial class MainWindow : Window
     readonly JobRunner runner = new();
     readonly GitHubJobService jobs = new();
     readonly TaskReportService reports = new();
+    readonly MemoryService memory = new();
     CancellationTokenSource? cts;
     CancellationTokenSource? runnerCts;
     string? workspace;
@@ -121,17 +122,21 @@ public partial class MainWindow : Window
                     string result = "";
                     try
                     {
-                        result = await agent.RunAsync(workspace, job.Prompt, token,
+                        var recalled = await memory.RecallAsync(workspace, job.Prompt, token);
+                        var effective = string.IsNullOrWhiteSpace(recalled) ? job.Prompt : $"{job.Prompt}\n\nMEMÓRIA RELEVANTE DESTE PROJETO:\n{recalled}";
+                        result = await agent.RunAsync(workspace, effective, token,
                             ev => Dispatcher.UIThread.Post(() => Activity(ev)));
-                        var report = await reports.CreateAsync(workspace, job, state.AgentId, started, "Concluído", result, token);
+                        await memory.RememberAsync(workspace, job.Prompt, result, token);
+                        var delivery = await jobs.DeliverAsync(workspace, job, result, token);
+                        var report = await reports.CreateAsync(workspace, job, state.AgentId, started, "Concluído", $"{result}\n\nCommit: {delivery.Commit}\nPR: {delivery.PullRequestUrl}", token);
                         Activity($"Relatório gerado: {report}");
-                        await jobs.CompleteAsync(workspace, job, state.AgentId, token);
+                        await jobs.CompleteAsync(workspace, job, state.AgentId, $"MIAU concluiu a tarefa.\n\n{result}\n\nCommit: {delivery.Commit}\nPR: {delivery.PullRequestUrl}", token);
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
                         var report = await reports.CreateAsync(workspace, job, state.AgentId, started, "Falhou", ex.Message, token);
                         Activity($"Relatório de falha: {report}");
-                        await jobs.FailAsync(workspace, job, state.AgentId, token);
+                        await jobs.FailAsync(workspace, job, state.AgentId, $"MIAU falhou na tarefa.\n\n{ex.Message}\n\nRelatório local: {report}", token);
                         throw;
                     }
                     await Dispatcher.UIThread.InvokeAsync(RefreshChanges);
@@ -205,7 +210,9 @@ public partial class MainWindow : Window
         Thread.Children.Add(activity);
         try
         {
-            var result = await agent.RunAsync(workspace, prompt, cts.Token,
+            var recalled = await memory.RecallAsync(workspace, prompt, cts.Token);
+            var effectivePrompt = string.IsNullOrWhiteSpace(recalled) ? prompt : $"{prompt}\n\nMEMÓRIA RELEVANTE DESTE PROJETO:\n{recalled}";
+            var result = await agent.RunAsync(workspace, effectivePrompt, cts.Token,
                 ev => Dispatcher.UIThread.Post(() =>
                 {
                     activity.Text = ev;
@@ -213,7 +220,8 @@ public partial class MainWindow : Window
                 }));
             activity.Text = "";
             Add("MIAU", result);
-            Activity("Tarefa concluída.");
+            await memory.RememberAsync(workspace, prompt, result, cts.Token);
+            Activity("Tarefa concluída e registrada na memória local.");
             await RefreshChanges();
         }
         catch (OperationCanceledException) { activity.Text = "Tarefa interrompida."; Activity("Tarefa interrompida."); }
