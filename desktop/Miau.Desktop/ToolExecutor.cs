@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace Miau.Desktop;
 
@@ -46,16 +48,66 @@ public sealed class ToolExecutor : IToolExecutor
 
     public async Task<ToolResult> ValidateAsync(string workspace, CancellationToken ct)
     {
-        var project = Directory.EnumerateFiles(workspace, "*.sln*", SearchOption.TopDirectoryOnly).FirstOrDefault()
-            ?? Directory.EnumerateFiles(workspace, "*.csproj", SearchOption.AllDirectories).FirstOrDefault();
+        var candidates = await ValidationCandidates(workspace, ct);
+        if (candidates.Any(x => x.EndsWith(".py", StringComparison.OrdinalIgnoreCase)))
+            return await Validation(ToolNames.Test, workspace, "python3 -m compileall -q .", ct);
+
+        var package = ClosestManifest(workspace, candidates, "package.json");
+        if (package is not null)
+        {
+            using var json = JsonDocument.Parse(await File.ReadAllTextAsync(package, ct));
+            var scripts = json.RootElement.TryGetProperty("scripts", out var value) ? value : default;
+            var commands = new List<string>();
+            if (scripts.ValueKind == JsonValueKind.Object && scripts.TryGetProperty("build", out _)) commands.Add("npm run build");
+            if (scripts.ValueKind == JsonValueKind.Object && scripts.TryGetProperty("test", out var test) && !test.ToString().Contains("no test specified", StringComparison.OrdinalIgnoreCase)) commands.Add("npm test -- --run");
+            if (commands.Count == 0) return ToolResult.Ok(ToolNames.Test, "package.json sem scripts build/test; validação contextual não aplicável.", ("validation", "true"), ("project_type", "node"));
+            var result = await Validation(ToolNames.Test, Path.GetDirectoryName(package)!, string.Join(" && ", commands), ct);
+            return WithMetadata(result, "project_type", "node");
+        }
+
+        if (candidates.Any(x => new[] { ".html", ".css", ".js" }.Contains(Path.GetExtension(x), StringComparer.OrdinalIgnoreCase)))
+            return ValidateStatic(workspace, candidates);
+
+        var project = ClosestProject(workspace, candidates);
         if (project is not null)
         {
             var relative = Path.GetRelativePath(workspace, project).Replace("\"", "\\\"");
-            return await Validation(ToolNames.Build, workspace, $"dotnet build \"{relative}\"", ct);
+            var result = await Validation(ToolNames.Build, workspace, $"dotnet build \"{relative}\"", ct);
+            return WithMetadata(result, "project_type", "dotnet");
         }
-        if (File.Exists(Path.Combine(workspace, "package.json"))) return await Validation(ToolNames.Test, workspace, "npm test -- --run", ct);
         return ToolResult.Ok(ToolNames.Test, "Nenhum build/teste automático reconhecido; validação não aplicável.", ("validation", "true"));
     }
+
+    static async Task<string[]> ValidationCandidates(string workspace, CancellationToken ct)
+    {
+        try
+        {
+            var output = await Run(workspace, "git", ["status", "--porcelain"], ct);
+            var changed = output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(x => x.Length > 3 ? x[3..].Trim() : "").Where(x => x.Length > 0).ToArray();
+            if (changed.Length > 0) return changed;
+        }
+        catch { }
+        return Directory.EnumerateFiles(workspace, "*", SearchOption.AllDirectories).Where(x => !Ignored(x)).Select(x => Path.GetRelativePath(workspace, x)).Take(2000).ToArray();
+    }
+    static string? ClosestManifest(string workspace, string[] candidates, string name) => candidates.Select(x => Path.GetDirectoryName(Path.Combine(workspace, x))).Where(x => x is not null).SelectMany(Ancestors).Select(x => Path.Combine(x, name)).FirstOrDefault(File.Exists);
+    static IEnumerable<string> Ancestors(string? path) { while (!string.IsNullOrWhiteSpace(path)) { yield return path; path = Path.GetDirectoryName(path); } }
+    static string? ClosestProject(string workspace, string[] candidates) => Directory.EnumerateFiles(workspace, "*.sln*", SearchOption.TopDirectoryOnly).FirstOrDefault() ?? candidates.Select(x => Path.GetDirectoryName(Path.Combine(workspace, x))).Where(x => x is not null).SelectMany(Ancestors).SelectMany(x => Directory.EnumerateFiles(x, "*.csproj", SearchOption.TopDirectoryOnly)).FirstOrDefault();
+    static ToolResult ValidateStatic(string workspace, string[] candidates)
+    {
+        var html = candidates.Where(x => x.EndsWith(".html", StringComparison.OrdinalIgnoreCase)).ToArray();
+        foreach (var relative in html)
+        {
+            var full = Path.Combine(workspace, relative); if (!File.Exists(full)) return ToolResult.Fail(ToolNames.Test, $"Arquivo estático ausente: {relative}");
+            var text = File.ReadAllText(full); if (!text.Contains("<html", StringComparison.OrdinalIgnoreCase)) return ToolResult.Fail(ToolNames.Test, $"Estrutura HTML mínima ausente: {relative}");
+            foreach (Match match in Regex.Matches(text, "(?:href|src)=[\\\"']([^\\\"'#?]+)", RegexOptions.IgnoreCase))
+            {
+                var reference = match.Groups[1].Value; if (reference.Contains("://") || reference.StartsWith("data:")) continue;
+                if (!File.Exists(Path.GetFullPath(Path.Combine(Path.GetDirectoryName(full)!, reference)))) return ToolResult.Fail(ToolNames.Test, $"Referência local inválida em {relative}: {reference}");
+            }
+        }
+        return ToolResult.Ok(ToolNames.Test, $"Validação estática concluída: {html.Length} HTML; referências locais válidas.", ("validation", "true"), ("project_type", "static"));
+    }
+    static ToolResult WithMetadata(ToolResult result, string key, string value) => result with { Metadata = result.Metadata.Concat(new[] { new KeyValuePair<string, string>(key, value) }).ToDictionary(x => x.Key, x => x.Value) };
 
     static async Task<ToolResult> Write(string tool, string path, string content, string relative, CancellationToken ct)
     { Directory.CreateDirectory(Path.GetDirectoryName(path)!); await File.WriteAllTextAsync(path, content, ct); return ToolResult.Ok(tool, $"Arquivo salvo: {relative}", ("changed_path", relative)); }
