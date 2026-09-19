@@ -184,6 +184,9 @@ public sealed class AgentService
         foreach (var l in lines) { i++; if (l.Contains(q, StringComparison.OrdinalIgnoreCase)) yield return $"{p}:{i}: {l}"; }
     }
 
+    public Task<string> GetGitStatusAsync(string root, CancellationToken ct) => Cmd(root, "git status --short", ct);
+    public Task<string> GetGitDiffAsync(string root, CancellationToken ct) => Cmd(root, "git diff --no-color", ct);
+
     static async Task<string> Cmd(string root, string command, CancellationToken ct)
     {
         ProcessStartInfo psi;
