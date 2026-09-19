@@ -9,7 +9,7 @@ namespace Miau.Desktop;
 public sealed class AgentService
 {
     readonly HttpClient http = new() { BaseAddress = new Uri("http://127.0.0.1:11434"), Timeout = Timeout.InfiniteTimeSpan };
-    static readonly HashSet<string> Allowed = ["list_files", "read_file", "write_file", "search", "run_command", "git_status", "git_diff"];
+    static readonly HashSet<string> Allowed = ["list_files", "read_file", "write_file", "search", "run_command", "git_status", "git_diff"];\n    static readonly string[] Dangerous = ["git reset --hard", "git clean", "git push --force", "rm -rf", "rmdir /s", "del /f /s", "format ", "shutdown", "reboot"];
 
     public async Task<string> RunAsync(string root, string prompt, CancellationToken ct, Action<string> progress)
     {
@@ -60,7 +60,7 @@ public sealed class AgentService
                     continue;
                 }
 
-                progress($"● {call.Name}");
+                progress(Describe(call.Name, call.Args));
                 string output;
                 try { output = await Execute(root, call.Name, call.Args, ct); }
                 catch (Exception ex) { output = "ERRO DA FERRAMENTA: " + ex.Message; }
@@ -147,7 +147,7 @@ public sealed class AgentService
             "search" => Search(root, Arg("query")),
             "git_status" => await Cmd(root, "git status --short --branch", ct),
             "git_diff" => await Cmd(root, "git diff", ct),
-            "run_command" => await Cmd(root, Arg("command"), ct),
+            "run_command" => await SafeCmd(root, Arg("command"), ct),
             _ => "Ferramenta desconhecida"
         };
     }
@@ -205,6 +205,33 @@ public sealed class AgentService
             blocks.Add($"--- /dev/null\n+++ b/{rel}\n@@ arquivo novo @@\n{body}");
         }
         return string.Join("\n", new[] { tracked, string.Join("\n\n", blocks) }.Where(x => !string.IsNullOrWhiteSpace(x)));
+    }
+
+    static Task<string> SafeCmd(string root, string command, CancellationToken ct)
+    {
+        if (Dangerous.Any(x => command.Contains(x, StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException("Comando bloqueado por segurança: " + command);
+        return Cmd(root, command, ct);
+    }
+
+    static string Describe(string name, JsonElement a)
+    {
+        string Arg(string n)
+        {
+            if (a.ValueKind != JsonValueKind.Object || !a.TryGetProperty(n, out var x)) return "";
+            return x.ValueKind == JsonValueKind.String ? x.GetString() ?? "" : x.ToString();
+        }
+        return name switch
+        {
+            "list_files" => $"▸ Listando arquivos: {Arg("path")}",
+            "read_file" => $"▸ Lendo: {Arg("path")}",
+            "write_file" => $"▸ Alterando: {Arg("path")}",
+            "search" => $"▸ Pesquisando: {Arg("query")}",
+            "run_command" => $"▸ Executando: {Arg("command")}",
+            "git_status" => "▸ Verificando Git status",
+            "git_diff" => "▸ Revisando alterações (git diff)",
+            _ => $"▸ {name}"
+        };
     }
 
     static async Task<string> Cmd(string root, string command, CancellationToken ct)
