@@ -1,1 +1,58 @@
-{"name":"miau-vscode","displayName":"MIAU Local Coding Agent","description":"Agente local MIAU para VS Code.","version":"0.1.1","engines":{"vscode":"^1.95.0"},"categories":["Machine Learning","Other"],"main":"./out/extension.js","contributes":{"viewsContainers":{"activitybar":[{"id":"miau","title":"MIAU","icon":"media/miau.svg"}]},"views":{"miau":[{"type":"webview","id":"miau.chat","name":"Coding Agent"}]},"configuration":{"title":"MIAU","properties":{"miau.apiUrl":{"type":"string","default":"http://127.0.0.1:11435","description":"URL da API local do MIAU."},"miau.model":{"type":"string","default":"qwen2.5-coder:7b","description":"Modelo instalado no Ollama usado pelo agente."}}}},"scripts":{"compile":"tsc -p ./","watch":"tsc -w -p ./"},"devDependencies":{"@types/node":"^22.0.0","@types/vscode":"^1.95.0","typescript":"^5.7.0"}}
+{
+  "name": "miau-vscode",
+  "displayName": "MIAU Coding Agent",
+  "description": "Agente de programação local para VS Code com chat de tarefas, ferramentas de workspace e Git.",
+  "version": "0.2.0",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Machine Learning",
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "miau",
+          "title": "MIAU",
+          "icon": "media/miau.svg"
+        }
+      ]
+    },
+    "views": {
+      "miau": [
+        {
+          "type": "webview",
+          "id": "miau.chat",
+          "name": "Coding Agent"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "MIAU",
+      "properties": {
+        "miau.apiUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:11435",
+          "description": "URL da API local do MIAU."
+        },
+        "miau.model": {
+          "type": "string",
+          "default": "qwen2.5-coder:7b",
+          "description": "Modelo instalado no Ollama usado pelo agente."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -w -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.95.0",
+    "typescript": "^5.7.0"
+  }
+}
