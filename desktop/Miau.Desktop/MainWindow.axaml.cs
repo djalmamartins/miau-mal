@@ -19,6 +19,7 @@ public partial class MainWindow : Window
     CancellationTokenSource? cts;
     CancellationTokenSource? runnerCts;
     string? workspace;
+    readonly List<string> attachments = [];
 
     public MainWindow()
     {
@@ -81,6 +82,21 @@ public partial class MainWindow : Window
     }
 
     void Stop(object? s, RoutedEventArgs e) => cts?.Cancel();
+
+    async void AddAttachment(object? s, RoutedEventArgs e) => await PickAttachments(false);
+    async void AddLibrary(object? s, RoutedEventArgs e) => await PickAttachments(true);
+
+    async Task PickAttachments(bool multiple)
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new() { Title = multiple ? "Adicionar à conversa" : "Adicionar arquivo ou imagem", AllowMultiple = multiple });
+        foreach (var file in files)
+        {
+            var path = file.Path.LocalPath;
+            if (!attachments.Contains(path, StringComparer.OrdinalIgnoreCase)) attachments.Add(path);
+        }
+        AttachmentText.Text = string.Join("  •  ", attachments.Select(Path.GetFileName));
+        AttachmentText.IsVisible = attachments.Count > 0;
+    }
 
     async void AutonomousChanged(object? s, RoutedEventArgs e)
     {
@@ -193,6 +209,8 @@ public partial class MainWindow : Window
     async void Send(object? s, RoutedEventArgs e)
     {
         var prompt = PromptBox.Text?.Trim();
+        if (attachments.Count > 0)
+            prompt = $"{prompt}\n\nARQUIVOS ANEXADOS PELO USUÁRIO:\n{string.Join("\n", attachments.Select(x => "- " + x))}\nUse-os como contexto quando forem legíveis; imagens são anexos de referência e não devem ser inventadas como texto.";
         if (string.IsNullOrWhiteSpace(prompt)) return;
         if (string.IsNullOrWhiteSpace(workspace)) { await Message("Abra um projeto primeiro."); return; }
 
@@ -200,6 +218,9 @@ public partial class MainWindow : Window
         Scroller.IsVisible = true;
         Add("Você", prompt);
         PromptBox.Text = "";
+        attachments.Clear();
+        AttachmentText.Text = "";
+        AttachmentText.IsVisible = false;
         SendButton.IsVisible = false;
         StopButton.IsVisible = true;
         StatusText.Text = "MIAU trabalhando…";
