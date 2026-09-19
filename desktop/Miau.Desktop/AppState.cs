@@ -1,0 +1,39 @@
+using System.Text.Json;
+
+namespace Miau.Desktop;
+
+public sealed class AppState
+{
+    public string? LastWorkspace { get; set; }
+    public List<string> RecentProjects { get; set; } = [];
+    public string Model { get; set; } = "qwen2.5-coder:7b";
+
+    static string FilePath => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MIAU", "state.json");
+
+    public static AppState Load()
+    {
+        try
+        {
+            if (File.Exists(FilePath))
+                return JsonSerializer.Deserialize<AppState>(File.ReadAllText(FilePath)) ?? new();
+        }
+        catch { }
+        return new();
+    }
+
+    public void RememberProject(string path)
+    {
+        LastWorkspace = path;
+        RecentProjects.RemoveAll(p => string.Equals(p, path, StringComparison.OrdinalIgnoreCase));
+        RecentProjects.Insert(0, path);
+        if (RecentProjects.Count > 12) RecentProjects.RemoveRange(12, RecentProjects.Count - 12);
+        Save();
+    }
+
+    public void Save()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
+        File.WriteAllText(FilePath, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+    }
+}
