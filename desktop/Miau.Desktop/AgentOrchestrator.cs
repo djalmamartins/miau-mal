@@ -172,6 +172,14 @@ public sealed class AgentOrchestrator
                         }
                     }
                 }
+                if (requirements.RequiresVisualValidation && IsBroadVisualRewrite(task) && !HasBroadVisualEvidence(engine.Evidence))
+                {
+                    const string breadthReason = "A reformulação visual ampla ainda não tem evidência suficiente de implementação estrutural.";
+                    Emit(ExecutionEventType.RetryStarted, "Escopo visual ainda superficial", success: false, details: breadthReason);
+                    turns.Add(new("assistant", raw));
+                    turns.Add(new("user", $"FINAL RECUSADO: {breadthReason} Uma tarefa ampla não pode ser concluída com apenas uma alteração pontual. Reestruture os arquivos necessários (HTML/CSS/JS conforme o projeto), implemente as seções e responsividade pedidas, então renderize e inspecione novamente."));
+                    continue;
+                }
                 if (!engine.TryComplete(out var reason))
                 {
                     if (!engine.RecordFailure(reason)) break;
@@ -193,6 +201,15 @@ public sealed class AgentOrchestrator
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         { engine.Cancel(); Emit(ExecutionEventType.JobCancelled, "Tarefa cancelada pelo usuário", success: false); throw; }
+    }
+
+    internal static bool HasBroadVisualEvidence(JobEvidence evidence)
+    {
+        // A broad redesign needs either multiple files changed (typical HTML/CSS/JS)
+        // or repeated structural work in one file. JobEvidence currently tracks unique
+        // files, so require >=2 files to prevent a one-line HTML tweak from satisfying
+        // a site-wide redesign request.
+        return evidence.FilesChanged.Count >= 2;
     }
 
     internal static bool IsBroadVisualRewrite(string task)
