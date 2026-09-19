@@ -80,6 +80,27 @@ public sealed class AgentOrchestratorTests
     }
 
     [Fact]
+    public void VisualAcceptanceReportsMissingRequestedSections()
+    {
+        var task = "site com header, hero, produtos em destaque, seção editorial, chamadas, footer completo e responsivo";
+        var result = VisualAcceptance.Evaluate(task, "<header></header><section class=\"hero\"></section><section class=\"products\"></section><footer></footer>", "body{}");
+        Assert.False(result.Passed);
+        Assert.Contains("seção editorial", result.Missing);
+        Assert.Contains("chamadas/CTA", result.Missing);
+        Assert.Contains("responsividade CSS (@media/@container)", result.Missing);
+    }
+
+    [Fact]
+    public void VisualAcceptancePassesWhenRequestedEvidenceExists()
+    {
+        var task = "site com header, hero, produtos em destaque, seção editorial, chamadas, footer completo e responsivo";
+        var html = "<header></header><section class=\"hero\"></section><section class=\"products\"></section><section class=\"editorial\"></section><a class=\"cta\">Ver menu</a><footer></footer>";
+        var result = VisualAcceptance.Evaluate(task, html, "@media (max-width: 700px) { body { display:block; } }");
+        Assert.True(result.Passed);
+        Assert.Empty(result.Missing);
+    }
+
+    [Fact]
     public void JobEngineDoesNotDependOnModelAdapter()
     {
         var engine = new JobEngine(new(false, true)); engine.Start();
