@@ -7,7 +7,7 @@ public sealed class AgentService
 {
     readonly ToolExecutor tools = new();
     public string Model { get; set; } = "qwen2.5-coder:7b";
-    public TimeSpan ModelTimeout { get; set; } = TimeSpan.FromMinutes(5);
+    public TimeSpan ModelTimeout { get; set; } = TimeSpan.FromSeconds(90);
     public AgentRunResult? LastRunResult { get; private set; }
 
     public async Task<string> RunAsync(string root, string prompt, CancellationToken ct, Action<string> progress)
