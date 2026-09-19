@@ -81,8 +81,7 @@ public sealed class EvolutionService
     }
     static string SummarizeActivity(JsonElement x)
     {
-        var at = Timestamp(x); var raw = DatasetService.Redact(Text(x, "Task", "request", "FinalResult", "reason")).Replace("\\r", " ").Replace("\
-", " ").Trim();
+        var at = Timestamp(x); var raw = DatasetService.Redact(Text(x, "Task", "request", "FinalResult", "reason")).Replace("\\r", " ").Replace("\\n", " ").Trim();
         if (raw.Length > 180) raw = raw[..180] + "…";
         return $"{(at == DateTimeOffset.MinValue ? "sem data" : at.ToString("g"))} · {raw}";
     }
