@@ -13,7 +13,7 @@ public sealed class AgentOrchestrator
     public async Task<AgentRunResult> RunAsync(string workspace, string task, JobRequirements requirements, CancellationToken ct,
         Action<JobPhase, string>? progress = null, Action<ExecutionEvent>? eventSink = null)
     {
-        var engine = new JobEngine(requirements); var trace = new List<TaskTraceEvent>(); var plan = new List<string>(); var replaceFailures = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase); var repeatedResponses = new Dictionary<string, int>(StringComparer.Ordinal); var turns = new List<ModelTurn> { new("user", task) }; var jobWatch = Stopwatch.StartNew();
+        var engine = new JobEngine(requirements); var trace = new List<TaskTraceEvent>(); var plan = new List<string>(); var replaceFailures = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase); string? lastResponseKey = null; string? lastProgressKey = null; var consecutiveSameResponse = 0; var turns = new List<ModelTurn> { new("user", task) }; var jobWatch = Stopwatch.StartNew();
         (MiauAction Action, ToolResult Result)? pendingRecovery = null;
         void Emit(ExecutionEventType type, string description, string? target = null, TimeSpan? duration = null, bool? success = null, IReadOnlyDictionary<string, string>? metadata = null, string? details = null)
             => eventSink?.Invoke(new(DateTimeOffset.Now, type, engine.Phase, description, target, duration, success, metadata, details));
@@ -35,10 +35,13 @@ public sealed class AgentOrchestrator
                 catch (TimeoutException ex) { engine.Fail(ex.Message); Emit(ExecutionEventType.JobFailed, "Ollama sem resposta", model.ModelId, watch.Elapsed, false, details: ex.Message); break; }
                 Emit(ExecutionEventType.ModelRequestCompleted, "Resposta estruturada recebida", model.ModelId, watch.Elapsed, true);
                 var responseKey = raw.Trim();
-                repeatedResponses[responseKey] = repeatedResponses.GetValueOrDefault(responseKey) + 1;
-                if (repeatedResponses[responseKey] >= 3)
+                var progressKey = ProgressKey(engine.Evidence);
+                if (responseKey == lastResponseKey && progressKey == lastProgressKey) consecutiveSameResponse++;
+                else consecutiveSameResponse = 1;
+                lastResponseKey = responseKey; lastProgressKey = progressKey;
+                if (consecutiveSameResponse >= 3)
                 {
-                    var loop = "Loop detectado: o modelo repetiu a mesma resposta estruturada 3 vezes sem progresso.";
+                    var loop = "Loop detectado: o modelo repetiu a mesma resposta estruturada 3 vezes sem nova evidência.";
                     engine.Fail(loop);
                     Emit(ExecutionEventType.JobFailed, loop, model.ModelId, success: false);
                     break;
@@ -188,6 +191,9 @@ public sealed class AgentOrchestrator
             summary += "\nInspeção visual: aprovada pelo modelo visual local.";
         return summary;
     }
+
+    static string ProgressKey(JobEvidence evidence) =>
+        $"{evidence.FilesInspected.Count}|{evidence.FilesChanged.Count}|{evidence.HasGitDiff}|{evidence.ValidationRan}|{evidence.VisualValidationRan}|{evidence.VisualInspectionRan}|{evidence.VisualInspectionPassed}|{evidence.Attempts}";
 
     static string ToolObservation(ToolResult result) => $"RESULTADO ESTRUTURADO DA FERRAMENTA {result.Tool}: success={result.Success}; output={Trim(result.Output)}; error={result.Error ?? ""}";
     static string Trim(string value) => value.Length > 30000 ? value[..30000] + "\n[truncado]" : value;
