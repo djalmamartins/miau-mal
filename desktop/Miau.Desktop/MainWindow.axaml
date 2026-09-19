@@ -16,7 +16,7 @@
    <StackPanel Orientation="Horizontal" Spacing="14">
     <Border Width="70" Height="32" Background="Transparent" VerticalAlignment="Center">
      <Canvas Width="70" Height="25">
-      <Image x:Name="SidebarLogo" IsVisible="False"/><Path Fill="#FFC400" Data="M 6,13 C 13,5 25,5 31,13 C 25,21 13,21 6,13 Z"/><Ellipse Fill="#090A0C" Width="8" Height="13" Canvas.Left="18" Canvas.Top="6"/><Path Fill="#FFC400" Data="M 39,13 C 45,5 57,5 64,13 C 57,21 45,21 39,13 Z"/><Ellipse Fill="#090A0C" Width="8" Height="13" Canvas.Left="45" Canvas.Top="6"/>
+      <Image x:Name="SidebarLogo" Width="70" Height="25" Stretch="Uniform"/>
      </Canvas>
     </Border>
     <StackPanel VerticalAlignment="Center"><TextBlock Text="MIAU" FontSize="27" FontWeight="Bold"/><TextBlock Classes="muted" Text="Seu agente local"/></StackPanel>
@@ -63,7 +63,7 @@
    <StackPanel x:Name="Welcome" HorizontalAlignment="Center" VerticalAlignment="Center" Width="790">
     <Border Width="190" Height="55" Background="Transparent" HorizontalAlignment="Center" Margin="0,0,0,28">
      <Canvas Width="190" Height="55">
-      <Image x:Name="WelcomeLogo" IsVisible="False"/><Path Fill="#FFC400" Data="M 32,25 C 46,8 72,8 85,25 C 72,42 46,42 32,25 Z"/><Ellipse Fill="#090A0C" Width="15" Height="25" Canvas.Left="58" Canvas.Top="12"/><Path Fill="#FFC400" Data="M 105,25 C 118,8 144,8 158,25 C 144,42 118,42 105,25 Z"/><Ellipse Fill="#090A0C" Width="15" Height="25" Canvas.Left="118" Canvas.Top="12"/>
+      <Image x:Name="WelcomeLogo" Width="190" Height="55" Stretch="Uniform"/>
      </Canvas>
     </Border>
     <TextBlock Text="Como posso ajudar?" FontSize="36" FontWeight="Bold" HorizontalAlignment="Center"/>
@@ -95,6 +95,7 @@
  </Grid>
 
  <Border Grid.Column="2" Background="#090A0C" BorderBrush="#202328" BorderThickness="1,0,0,0">
+  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
   <Grid RowDefinitions="Auto,Auto,*" Margin="20">
    <StackPanel Spacing="6">
     <TextBlock Text="MIAU1-Coder v0" FontWeight="SemiBold"/>
@@ -132,7 +133,7 @@
          <TextBlock Grid.Row="1" x:Name="PhasePlan" Text="○ Planejar"/><TextBlock Grid.Row="1" Grid.Column="1" x:Name="PhaseEdit" Text="○ Editar"/>
          <TextBlock Grid.Row="2" x:Name="PhaseVerify" Text="○ Verificar"/><TextBlock Grid.Row="2" Grid.Column="1" x:Name="PhaseTest" Text="○ Testar"/>
         </Grid>
-        <ScrollViewer Grid.Row="2" x:Name="ActivityScroller" Height="390" VerticalScrollBarVisibility="Auto">
+        <ScrollViewer Grid.Row="2" x:Name="ActivityScroller" MinHeight="240" MaxHeight="520" VerticalScrollBarVisibility="Auto">
          <StackPanel x:Name="ActivityFeed" Spacing="7"><TextBlock Classes="muted" Text="Aguardando uma tarefa…" TextWrapping="Wrap"/></StackPanel>
         </ScrollViewer>
        </Grid>
@@ -149,5 +150,6 @@
     </TabItem>
    </TabControl>
   </Grid>
+  </ScrollViewer>
  </Border>
 </Grid></Window>
