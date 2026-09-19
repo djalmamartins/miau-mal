@@ -29,6 +29,7 @@ public partial class MainWindow : Window
     CancellationTokenSource? runnerCts;
     string? workspace;
     readonly List<string> attachments = [];
+    readonly List<string> executionLog = [];
     readonly DispatcherTimer executionTimer = new() { Interval = TimeSpan.FromMilliseconds(550) };
     DateTimeOffset executionStarted;
     DateTimeOffset lastExecutionPulse;
@@ -406,9 +407,12 @@ public partial class MainWindow : Window
 
     void Activity(string text)
     {
+        var stamped = $"{DateTime.Now:HH:mm:ss}  {text}";
+        executionLog.Add(stamped);
+        while (executionLog.Count > 500) executionLog.RemoveAt(0);
         var line = new TextBlock
         {
-            Text = $"{DateTime.Now:HH:mm:ss}  {text}",
+            Text = stamped,
             TextWrapping = TextWrapping.Wrap,
             FontFamily = new FontFamily("Menlo,Consolas,monospace"),
             FontSize = 11,
@@ -435,6 +439,8 @@ public partial class MainWindow : Window
         var elapsed = ev.Duration is { } d ? $" · {d.TotalSeconds:0.0}s" : "";
         var narrative = ExecutionNarrative(ev);
         var title = $"{symbol} {narrative}{elapsed}" + (string.IsNullOrWhiteSpace(ev.Target) || ev.Type is ExecutionEventType.ModelRequestStarted or ExecutionEventType.ModelRequestCompleted ? "" : $"\n  {ev.Target}");
+        executionLog.Add($"{DateTime.Now:HH:mm:ss}  {title}" + (string.IsNullOrWhiteSpace(ev.Details) ? "" : $"\n{ev.Details}"));
+        while (executionLog.Count > 500) executionLog.RemoveAt(0);
         Control item = string.IsNullOrWhiteSpace(ev.Details)
             ? new TextBlock { Text = title, TextWrapping = TextWrapping.Wrap, FontSize = 11 }
             : new Expander
@@ -510,6 +516,17 @@ public partial class MainWindow : Window
 
     static string Mark(JobPhase current, JobPhase target, string label) => current > target ? $"✓ {label}" : current == target ? $"● {label}" : $"○ {label}";
 
+    async void CopyExecution(object? sender, RoutedEventArgs e)
+    {
+        var top = GetTopLevel(this);
+        if (top?.Clipboard is null) return;
+        var header = $"MIAU execução\nProjeto: {workspace ?? "(nenhum)"}\nModelo: {agent.Model}\nEstado: {ExecutionStateText.Text}\nTempo: {ExecutionElapsedText.Text}\n\n";
+        await top.Clipboard.SetTextAsync(header + string.Join("\n", executionLog));
+        CopyExecutionButton.Content = "✓";
+        await Task.Delay(900);
+        CopyExecutionButton.Content = "⧉";
+    }
+
     async void RunDiagnostics(object? sender, RoutedEventArgs e)
     {
         Activity("MIAU Diagnostics");
@@ -576,6 +593,7 @@ public partial class MainWindow : Window
         SendButton.IsVisible = false;
         StopButton.IsVisible = true;
         StatusText.Text = "MIAU trabalhando…";
+        executionLog.Clear();
         SetExecutionState("running");
         Activity($"Iniciando tarefa: {prompt}");
         cts = new();
