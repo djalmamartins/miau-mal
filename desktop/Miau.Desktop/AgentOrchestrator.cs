@@ -140,7 +140,7 @@ public sealed class AgentOrchestrator
     {
         var summary = string.IsNullOrWhiteSpace(modelSummary) ? "Tarefa concluída." : modelSummary.Trim();
         if (files.Count > 0)
-            summary += "\n\nArquivos alterados: " + string.Join(", ", files.Select(x => $"\`{x}\`"));
+            summary += "\n\nArquivos alterados: " + string.Join(", ", files.Select(x => "[" + x + "]"));
         if (evidence.HasGitDiff)
             summary += "\nVerificação: alterações confirmadas pelo Git diff.";
         if (evidence.ValidationRan && evidence.ValidationPassed)
