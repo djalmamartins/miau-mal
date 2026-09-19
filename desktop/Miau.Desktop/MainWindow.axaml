@@ -21,7 +21,7 @@
    </StackPanel>
    <Button Grid.Row="1" Margin="0,25,0,18" Height="48" Content="＋  Nova conversa" Click="NewTask"/>
    <StackPanel Grid.Row="2">
-    <Button Classes="nav" Content="▣   Conversas"/><Button Classes="nav" Content="▱   Projetos" Click="OpenWorkspace"/>
+    <Button Classes="nav" Content="▣   Conversas" Click="ShowConversations"/><Button Classes="nav" Content="▱   Projetos" Click="OpenWorkspace"/>
     
    </StackPanel>
    <StackPanel Grid.Row="3" Margin="6,28,0,0"><TextBlock Classes="muted" Text="PROJETO ATUAL" FontSize="11"/><TextBlock x:Name="WorkspaceText" Text="Nenhum projeto aberto" TextWrapping="Wrap" Margin="0,8,0,0"/></StackPanel>
