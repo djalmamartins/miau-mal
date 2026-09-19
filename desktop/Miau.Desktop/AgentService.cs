@@ -30,6 +30,7 @@ public sealed class AgentService
         var inspectedRoot = false;
         var inspectedCentralFile = false;
         var analysisNudges = 0;
+        var actionNudges = 0;
         var job = new JobEngine(asksForCodeChange, readOnlyRequested);
         job.Begin(progress);
         if (projectAnalysisRequested)
