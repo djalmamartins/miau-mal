@@ -56,6 +56,8 @@ public sealed class AgentOrchestrator
                     {
                         if (!engine.RecordFailure(result.Error!)) break;
                         Emit(ExecutionEventType.RetryStarted, "Corrigindo falha da ferramenta", result.Tool, success: false, details: result.Error);
+                        if (result.Tool == ToolNames.ReplaceInFile)
+                            turns.Add(new("user", "A edição pontual falhou. Não repita a mesma substituição. Leia novamente o arquivo para obter o conteúdo atual. Se a alteração for ampla, prefira write_file com o conteúdo completo e correto do arquivo; se for pequena, use um old_text maior que seja único."));
                     }
                     continue;
                 }
