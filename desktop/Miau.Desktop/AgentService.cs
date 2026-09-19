@@ -10,7 +10,7 @@ public sealed class AgentService
 {
     readonly HttpClient http = new() { BaseAddress = new Uri("http://127.0.0.1:11434"), Timeout = Timeout.InfiniteTimeSpan };
     public string Model { get; set; } = "qwen2.5-coder:7b";
-    static readonly HashSet<string> Allowed = ["list_files", "read_file", "write_file", "search", "run_command", "git_status", "git_diff"];
+    static readonly HashSet<string> Allowed = ["list_files", "read_file", "write_file", "replace_in_file", "search", "run_command", "git_status", "git_diff"];
     static readonly string[] Dangerous = ["git reset --hard", "git clean", "git push --force", "rm -rf", "rmdir /s", "del /f /s", "format ", "shutdown", "reboot"];
 
     public async Task<string> RunAsync(string root, string prompt, CancellationToken ct, Action<string> progress)
@@ -146,6 +146,7 @@ public sealed class AgentService
             "list_files" => ListFiles(Safe(Arg("path", "."))),
             "read_file" => await File.ReadAllTextAsync(Safe(Arg("path")), ct),
             "write_file" => await Write(Safe(Arg("path")), Arg("content"), ct),
+            "replace_in_file" => await Replace(Safe(Arg("path")), Arg("old_text"), Arg("new_text"), ct),
             "search" => Search(root, Arg("query")),
             "git_status" => await Cmd(root, "git status --short --branch", ct),
             "git_diff" => await Cmd(root, "git diff", ct),
@@ -180,6 +181,15 @@ public sealed class AgentService
         Directory.CreateDirectory(Path.GetDirectoryName(p)!);
         await File.WriteAllTextAsync(p, c, ct);
         return $"Arquivo salvo: {p}";
+    }
+
+    static async Task<string> Replace(string p, string oldText, string newText, CancellationToken ct)
+    {
+        var current = await File.ReadAllTextAsync(p, ct);
+        var count = Regex.Matches(current, Regex.Escape(oldText)).Count;
+        if (count != 1) throw new InvalidOperationException($"Edição recusada: esperado 1 trecho correspondente, encontrado {count}.");
+        await File.WriteAllTextAsync(p, current.Replace(oldText, newText), ct);
+        return $"Trecho alterado: {p}";
     }
 
     static IEnumerable<string> Find(string p, string q)
@@ -227,7 +237,8 @@ public sealed class AgentService
         {
             "list_files" => $"▸ Listando arquivos: {Arg("path")}",
             "read_file" => $"▸ Lendo: {Arg("path")}",
-            "write_file" => $"▸ Alterando: {Arg("path")}",
+            "write_file" => $"▸ Gravando arquivo: {Arg("path")}",
+            "replace_in_file" => $"▸ Editando trecho: {Arg("path")}",
             "search" => $"▸ Pesquisando: {Arg("query")}",
             "run_command" => $"▸ Executando: {Arg("command")}",
             "git_status" => "▸ Verificando Git status",
@@ -251,7 +262,10 @@ public sealed class AgentService
         var o = p.StandardOutput.ReadToEndAsync(ct);
         var e = p.StandardError.ReadToEndAsync(ct);
         await p.WaitForExitAsync(ct);
-        return (await o) + "\n" + (await e);
+        var stdout = await o;
+        var stderr = await e;
+        if (p.ExitCode != 0) throw new InvalidOperationException($"Comando falhou ({p.ExitCode}): {stderr.Trim()}");
+        return stdout + (string.IsNullOrWhiteSpace(stderr) ? "" : "\n" + stderr);
     }
 
     static string Trim(string s) => s.Length > 30000 ? s[..30000] + "\n[truncado]" : s;
@@ -268,7 +282,8 @@ public sealed class AgentService
     [
         Tool("list_files", "Lista arquivos e diretórios de um caminho do projeto.", new { path = new { type = "string", description = "Caminho relativo. Use . para a raiz." } }),
         Tool("read_file", "Lê um arquivo de texto do projeto.", new { path = new { type = "string" } }, ["path"]),
-        Tool("write_file", "Cria ou substitui um arquivo no projeto.", new { path = new { type = "string" }, content = new { type = "string" } }, ["path", "content"]),
+        Tool("write_file", "Cria ou substitui um arquivo no projeto. Prefira replace_in_file para alterações localizadas.", new { path = new { type = "string" }, content = new { type = "string" } }, ["path", "content"]),
+        Tool("replace_in_file", "Substitui exatamente uma ocorrência de um trecho em arquivo existente; ideal para edições pequenas e seguras.", new { path = new { type = "string" }, old_text = new { type = "string" }, new_text = new { type = "string" } }, ["path", "old_text", "new_text"]),
         Tool("search", "Pesquisa texto nos arquivos do projeto.", new { query = new { type = "string" } }, ["query"]),
         Tool("run_command", "Executa um comando no terminal dentro do projeto.", new { command = new { type = "string" } }, ["command"]),
         Tool("git_status", "Executa git status no projeto.", new { }),
