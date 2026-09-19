@@ -3,6 +3,7 @@ using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Avalonia.Media.Imaging;
 
 namespace Miau.Desktop;
 
@@ -12,7 +13,28 @@ public partial class MainWindow : Window
     CancellationTokenSource? cts;
     string? workspace;
 
-    public MainWindow() { InitializeComponent(); }
+    public MainWindow()
+    {
+        InitializeComponent();
+        LoadBrand();
+    }
+
+    void LoadBrand()
+    {
+        try
+        {
+            var path = Path.Combine(AppContext.BaseDirectory, "Assets", "miau-logo.base64");
+            var bytes = Convert.FromBase64String(File.ReadAllText(path).Trim());
+            using var stream = new MemoryStream(bytes);
+            var bitmap = new Bitmap(stream);
+            SidebarLogo.Source = bitmap;
+            WelcomeLogo.Source = bitmap;
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "Logo não carregada: " + ex.Message;
+        }
+    }
 
     async void OpenWorkspace(object? s, RoutedEventArgs e)
     {
