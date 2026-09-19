@@ -133,7 +133,7 @@ public partial class MainWindow : Window
             Activity($"Ciclo de treino: {result.Completed}/{result.Attempted} concluídos; {result.Failed} falhas.");
             if (state.SelfRepairEnabled)
             {
-                var candidates = await selfRepair.DetectAsync(trainingCts.Token);
+                var candidates = await selfRepair.DetectAsync(trainingCts.Token, state.SelfRepairEvidenceThreshold);
                 Activity(candidates.Count == 0 ? "Auto-reparo: nenhuma falha recorrente elegível." : $"Auto-reparo: {candidates.Count} candidato(s) aguardando execução segura.");
                 foreach (var item in candidates.Take(5)) Activity($"RepairJob {item.Id}: {item.Reason} · evidências {item.EvidenceCount}");
             }
