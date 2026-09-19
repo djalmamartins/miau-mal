@@ -262,6 +262,20 @@ public sealed class AgentService
             }
             catch { }
         }
+        // Some small local models narrate a safe no-argument tool instead of emitting
+        // a native tool_call (for example: "Vou executar git_status."). Treat only these
+        // read-only/defaultable tools as calls. Never infer write/edit/command arguments.
+        if (result.Count == 0 && Regex.IsMatch(s, @"\\b(vou|irei|vamos)\\b", RegexOptions.IgnoreCase))
+        {
+            foreach (var name in new[] { "git_status", "git_diff", "list_files" })
+            {
+                if (Regex.IsMatch(s, $@"\\b{Regex.Escape(name)}\\b", RegexOptions.IgnoreCase))
+                {
+                    result.Add((name, EmptyArgs()));
+                    break;
+                }
+            }
+        }
         return result;
     }
 
