@@ -1,65 +1,74 @@
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
  x:Class="Miau.Desktop.MainWindow" Title="MIAU" Width="1536" Height="960" MinWidth="1100" MinHeight="700"
- Background="#101316">
+ Background="#0D1013">
 <Window.Styles>
  <Style Selector="Button"><Setter Property="CornerRadius" Value="8"/><Setter Property="Padding" Value="12,9"/></Style>
  <Style Selector="Button.nav"><Setter Property="HorizontalContentAlignment" Value="Left"/><Setter Property="Background" Value="Transparent"/><Setter Property="Margin" Value="0,2"/></Style>
- <Style Selector="TextBlock.muted"><Setter Property="Foreground" Value="#9DA3AA"/></Style>
+ <Style Selector="TextBlock.muted"><Setter Property="Foreground" Value="#969DA5"/></Style>
+ <Style Selector="Border.card"><Setter Property="Background" Value="#151A1F"/><Setter Property="BorderBrush" Value="#2B3238"/><Setter Property="BorderThickness" Value="1"/><Setter Property="CornerRadius" Value="12"/></Style>
 </Window.Styles>
-<Grid ColumnDefinitions="300,*,320">
- <!-- Sidebar -->
- <Border Grid.Column="0" Background="#15191D" BorderBrush="#292E33" BorderThickness="0,0,1,0">
+<Grid ColumnDefinitions="286,*,310">
+ <Border Grid.Column="0" Background="#12161A" BorderBrush="#282E34" BorderThickness="0,0,1,0">
   <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="22">
-   <StackPanel Orientation="Horizontal" Spacing="12"><TextBlock Text="🐱" FontSize="42"/><StackPanel VerticalAlignment="Center"><TextBlock Text="MIAU" FontSize="26" FontWeight="Bold"/><TextBlock Classes="muted" Text="Seu agente local"/></StackPanel></StackPanel>
-   <Button Grid.Row="1" Margin="0,24,0,18" Content="＋  Nova conversa" Click="NewTask"/>
+   <StackPanel Orientation="Horizontal" Spacing="14">
+    <Grid Width="70" Height="62">
+     <Ellipse Width="68" Height="48" Fill="#050607" VerticalAlignment="Bottom"/>
+     <Polygon Points="8,28 17,2 29,22" Fill="#050607"/>
+     <Polygon Points="41,22 53,2 62,28" Fill="#050607"/>
+     <Path Data="M 15,31 A 12,12 0 0 0 35,31" Stroke="#FFC400" StrokeThickness="7"/>
+     <Path Data="M 37,31 A 12,12 0 0 0 57,31" Stroke="#FFC400" StrokeThickness="7"/>
+    </Grid>
+    <StackPanel VerticalAlignment="Center"><TextBlock Text="MIAU" FontSize="27" FontWeight="Bold"/><TextBlock Classes="muted" Text="Seu agente local"/></StackPanel>
+   </StackPanel>
+   <Button Grid.Row="1" Margin="0,25,0,18" Height="48" Content="＋  Nova conversa" Click="NewTask"/>
    <StackPanel Grid.Row="2">
     <Button Classes="nav" Content="▣   Conversas"/><Button Classes="nav" Content="▱   Projetos" Click="OpenWorkspace"/>
     <Button Classes="nav" Content="♙   Agentes"/><Button Classes="nav" Content="◇   Modelos"/><Button Classes="nav" Content="⌕   Ferramentas"/><Button Classes="nav" Content="⚙   Configurações"/>
    </StackPanel>
-   <StackPanel Grid.Row="3" Margin="6,26,0,0"><TextBlock Classes="muted" Text="PROJETO ATUAL" FontSize="11"/><TextBlock x:Name="WorkspaceText" Text="Nenhum projeto aberto" TextWrapping="Wrap" Margin="0,8,0,0"/></StackPanel>
+   <StackPanel Grid.Row="3" Margin="6,28,0,0"><TextBlock Classes="muted" Text="PROJETO ATUAL" FontSize="11"/><TextBlock x:Name="WorkspaceText" Text="Nenhum projeto aberto" TextWrapping="Wrap" Margin="0,8,0,0"/></StackPanel>
    <StackPanel Grid.Row="4"><Separator/><TextBlock Text="DM   Djalma Martins" Margin="4,14,0,0"/></StackPanel>
   </Grid>
  </Border>
 
- <!-- Center -->
  <Grid Grid.Column="1" RowDefinitions="72,*,Auto">
-  <Border BorderBrush="#292E33" BorderThickness="0,0,0,1" Padding="28,0">
-   <Grid ColumnDefinitions="*,Auto"><StackPanel VerticalAlignment="Center"><TextBlock Text="MIAU⌄" FontSize="19" FontWeight="SemiBold"/><TextBlock x:Name="StatusText" Classes="muted" Text="● qwen2.5-coder:7b (local)" FontSize="12"/></StackPanel><Button Grid.Column="1" Classes="nav" Content="Limpar" Click="NewTask"/></Grid>
+  <Border BorderBrush="#282E34" BorderThickness="0,0,0,1" Padding="30,0">
+   <Grid ColumnDefinitions="*,Auto"><StackPanel VerticalAlignment="Center"><TextBlock Text="MIAU ⌄" FontSize="19" FontWeight="SemiBold"/><TextBlock x:Name="StatusText" Classes="muted" Text="● qwen2.5-coder:7b (local)" FontSize="12"/></StackPanel><Button Grid.Column="1" Classes="nav" Content="Limpar" Click="NewTask"/></Grid>
   </Border>
   <Grid Grid.Row="1">
    <StackPanel x:Name="Welcome" HorizontalAlignment="Center" VerticalAlignment="Center" Width="790">
-    <TextBlock Text="🐱" FontSize="72" HorizontalAlignment="Center"/>
-    <TextBlock Text="Como posso ajudar?" FontSize="36" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,8"/>
-    <TextBlock Classes="muted" Text="Codifique. Planeje. Analise. Faça mais com o MIAU." FontSize="18" HorizontalAlignment="Center"/>
+    <Grid Width="142" Height="116" Margin="0,0,0,20">
+     <Ellipse Width="136" Height="94" Fill="#030405" VerticalAlignment="Bottom"/>
+     <Polygon Points="8,50 27,3 54,42" Fill="#030405"/>
+     <Polygon Points="88,42 115,3 134,50" Fill="#030405"/>
+     <Path Data="M 28,62 A 24,24 0 0 0 66,62" Stroke="#FFC400" StrokeThickness="13"/>
+     <Path Data="M 76,62 A 24,24 0 0 0 114,62" Stroke="#FFC400" StrokeThickness="13"/>
+    </Grid>
+    <TextBlock Text="Como posso ajudar?" FontSize="36" FontWeight="Bold" HorizontalAlignment="Center"/>
+    <TextBlock Classes="muted" Text="Codifique. Planeje. Analise. Faça mais com o MIAU." FontSize="18" HorizontalAlignment="Center" Margin="0,10,0,0"/>
     <Grid ColumnDefinitions="*,*,*,*" Margin="0,42,0,0">
-     <Button Margin="5" Height="120" Content="&lt;/&gt;  Criar código&#10;&#10;Gere, refatore ou explique código."/>
-     <Button Grid.Column="1" Margin="5" Height="120" Content="▤  Analisar projeto&#10;&#10;Leia e entenda o seu repositório."/>
-     <Button Grid.Column="2" Margin="5" Height="120" Content="&gt;_  Resolver erros&#10;&#10;Cole o erro e encontre a solução."/>
-     <Button Grid.Column="3" Margin="5" Height="120" Content="◉  Planejar&#10;&#10;Crie um plano de desenvolvimento."/>
+     <Border Classes="card" Margin="5" Padding="18" Height="126"><StackPanel><TextBlock Text="&lt;/&gt;" FontSize="22"/><TextBlock Text="Criar código" FontWeight="SemiBold" Margin="0,14,0,4"/><TextBlock Classes="muted" Text="Gere, refatore ou explique código." TextWrapping="Wrap"/></StackPanel></Border>
+     <Border Grid.Column="1" Classes="card" Margin="5" Padding="18" Height="126"><StackPanel><TextBlock Text="▤" FontSize="22"/><TextBlock Text="Analisar projeto" FontWeight="SemiBold" Margin="0,14,0,4"/><TextBlock Classes="muted" Text="Leia e entenda o seu repositório." TextWrapping="Wrap"/></StackPanel></Border>
+     <Border Grid.Column="2" Classes="card" Margin="5" Padding="18" Height="126"><StackPanel><TextBlock Text="&gt;_" FontSize="22"/><TextBlock Text="Resolver erros" FontWeight="SemiBold" Margin="0,14,0,4"/><TextBlock Classes="muted" Text="Encontre a causa e aplique a solução." TextWrapping="Wrap"/></StackPanel></Border>
+     <Border Grid.Column="3" Classes="card" Margin="5" Padding="18" Height="126"><StackPanel><TextBlock Text="◉" FontSize="22"/><TextBlock Text="Planejar" FontWeight="SemiBold" Margin="0,14,0,4"/><TextBlock Classes="muted" Text="Crie um plano de desenvolvimento." TextWrapping="Wrap"/></StackPanel></Border>
     </Grid>
    </StackPanel>
-   <ScrollViewer x:Name="Scroller" IsVisible="False"><StackPanel x:Name="Thread" Margin="42,28" Spacing="14"/></ScrollViewer>
+   <ScrollViewer x:Name="Scroller" IsVisible="False"><StackPanel x:Name="Thread" Margin="46,30" Spacing="14"/></ScrollViewer>
   </Grid>
-  <Border Grid.Row="2" Margin="28,12,28,24" Padding="14" CornerRadius="18" Background="#171B1F" BorderBrush="#343A40" BorderThickness="1">
-   <Grid RowDefinitions="Auto,Auto">
-    <TextBox x:Name="PromptBox" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="78" Background="Transparent" BorderThickness="0" Watermark="Digite sua mensagem..."/>
-    <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,10,0,0"><Button Content="＋"/><TextBlock Grid.Column="1" Classes="muted" Text="Agente" VerticalAlignment="Center" Margin="10,0"/><Button Grid.Column="2" x:Name="StopButton" Content="Parar" IsEnabled="False" Click="Stop"/><Button Grid.Column="3" x:Name="SendButton" Content="Enviar  →" Margin="8,0,0,0" Click="Send"/></Grid>
+  <Border Grid.Row="2" Margin="28,12,28,24" Padding="15" CornerRadius="20" Background="#161B20" BorderBrush="#343B42" BorderThickness="1">
+   <Grid RowDefinitions="Auto,Auto"><TextBox x:Name="PromptBox" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="80" Background="Transparent" BorderThickness="0" Watermark="Digite sua mensagem..."/>
+    <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,10,0,0"><Button Content="＋"/><TextBlock Grid.Column="1" Classes="muted" Text="Agente local" VerticalAlignment="Center" Margin="12,0"/><Button Grid.Column="2" x:Name="StopButton" Content="Parar" IsEnabled="False" Click="Stop"/><Button Grid.Column="3" x:Name="SendButton" Content="Enviar  →" Margin="8,0,0,0" Click="Send"/></Grid>
    </Grid>
   </Border>
  </Grid>
 
- <!-- Context panel -->
- <Border Grid.Column="2" Background="#13171B" BorderBrush="#292E33" BorderThickness="1,0,0,0">
+ <Border Grid.Column="2" Background="#111519" BorderBrush="#282E34" BorderThickness="1,0,0,0">
   <ScrollViewer><StackPanel Margin="22" Spacing="12">
-   <TextBlock Classes="muted" Text="AGENTE" FontSize="11"/><Border Background="#1B2025" CornerRadius="8" Padding="14"><TextBlock Text="●  MIAU"/></Border><TextBlock Classes="muted" Text="Seu assistente de desenvolvimento"/>
-   <TextBlock Classes="muted" Text="MODELO" FontSize="11" Margin="0,20,0,0"/><Border Background="#1B2025" CornerRadius="8" Padding="14"><TextBlock Text="qwen2.5-coder:7b     ⌄"/></Border><TextBlock Classes="muted" Text="Modelo local via Ollama"/>
-   <TextBlock Classes="muted" Text="FERRAMENTAS" FontSize="11" Margin="0,20,0,0"/>
-   <CheckBox Content="Terminal" IsChecked="True"/><CheckBox Content="Sistema de arquivos" IsChecked="True"/><CheckBox Content="Git" IsChecked="True"/><CheckBox Content="Navegação web" IsChecked="False"/><CheckBox Content="Banco de dados" IsChecked="False"/>
+   <TextBlock Classes="muted" Text="AGENTE" FontSize="11"/><Border Classes="card" Padding="14"><TextBlock Text="●  MIAU"/></Border><TextBlock Classes="muted" Text="Seu assistente de desenvolvimento"/>
+   <TextBlock Classes="muted" Text="MODELO" FontSize="11" Margin="0,20,0,0"/><Border Classes="card" Padding="14"><TextBlock Text="qwen2.5-coder:7b     ⌄"/></Border><TextBlock Classes="muted" Text="Modelo local via Ollama"/>
+   <TextBlock Classes="muted" Text="FERRAMENTAS" FontSize="11" Margin="0,20,0,0"/><CheckBox Content="Terminal" IsChecked="True"/><CheckBox Content="Sistema de arquivos" IsChecked="True"/><CheckBox Content="Git" IsChecked="True"/><CheckBox Content="Navegação web" IsChecked="False"/><CheckBox Content="Banco de dados" IsChecked="False"/>
    <TextBlock Classes="muted" Text="CONTEXTO" FontSize="11" Margin="0,20,0,0"/><Button Content="＋  Adicionar contexto"/><TextBlock Classes="muted" Text="Adicione arquivos ou pastas para dar mais contexto ao MIAU." TextWrapping="Wrap"/>
-   <Separator Margin="0,18,0,4"/>
-   <TextBlock Text="ALTERAÇÕES" FontWeight="SemiBold"/><TextBlock x:Name="ChangeSummary" Classes="muted" Text="Nenhuma alteração" TextWrapping="Wrap"/>
-   <TextBox x:Name="DiffBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap" Height="230" FontFamily="Menlo,Consolas,monospace" FontSize="10" Background="#0E1114"/>
-   <Button Content="Atualizar diff" Click="RefreshDiff"/>
+   <Separator Margin="0,18,0,4"/><TextBlock Text="ALTERAÇÕES" FontWeight="SemiBold"/><TextBlock x:Name="ChangeSummary" Classes="muted" Text="Nenhuma alteração" TextWrapping="Wrap"/>
+   <TextBox x:Name="DiffBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap" Height="220" FontFamily="Menlo,Consolas,monospace" FontSize="10" Background="#0B0E11"/><Button Content="Atualizar diff" Click="RefreshDiff"/>
   </StackPanel></ScrollViewer>
  </Border>
 </Grid></Window>
