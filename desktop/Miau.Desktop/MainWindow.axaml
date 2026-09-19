@@ -1,15 +1,15 @@
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
  x:Class="Miau.Desktop.MainWindow" Title="MIAU" Width="1536" Height="960" MinWidth="1100" MinHeight="700"
- Background="#000000">
+ Background="#050607">
 <Window.Styles>
- <Style Selector="Button"><Setter Property="CornerRadius" Value="8"/><Setter Property="Padding" Value="12,9"/></Style>
+ <Style Selector="Button"><Setter Property="CornerRadius" Value="7"/><Setter Property="Padding" Value="12,9"/></Style>
  <Style Selector="Button.nav"><Setter Property="HorizontalContentAlignment" Value="Left"/><Setter Property="Background" Value="Transparent"/><Setter Property="Margin" Value="0,2"/></Style>
  <Style Selector="TextBlock.muted"><Setter Property="Foreground" Value="#969DA5"/></Style>
- <Style Selector="Border.card"><Setter Property="Background" Value="#151A1F"/><Setter Property="BorderBrush" Value="#2B3238"/><Setter Property="BorderThickness" Value="1"/><Setter Property="CornerRadius" Value="12"/></Style>
+ <Style Selector="Border.card"><Setter Property="Background" Value="#0D0F11"/><Setter Property="BorderBrush" Value="#24282D"/><Setter Property="BorderThickness" Value="1"/><Setter Property="CornerRadius" Value="10"/></Style>
  <Style Selector="Button.icon"><Setter Property="Width" Value="34"/><Setter Property="Height" Value="34"/><Setter Property="Padding" Value="0"/><Setter Property="CornerRadius" Value="17"/><Setter Property="FontSize" Value="17"/></Style>
 </Window.Styles>
 <Grid ColumnDefinitions="286,*,310">
- <Border Grid.Column="0" Background="#0B0E11" BorderBrush="#282E34" BorderThickness="0,0,1,0">
+ <Border Grid.Column="0" Background="#090A0C" BorderBrush="#202328" BorderThickness="0,0,1,0">
   <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="22">
    <StackPanel Orientation="Horizontal" Spacing="14">
     <Border Width="70" Height="25" Background="#000000" ClipToBounds="True" VerticalAlignment="Center">
@@ -30,7 +30,7 @@
  </Border>
 
  <Grid Grid.Column="1" RowDefinitions="72,*,Auto">
-  <Border BorderBrush="#282E34" BorderThickness="0,0,0,1" Padding="30,0">
+  <Border Background="#050607" BorderBrush="#202328" BorderThickness="0,0,0,1" Padding="30,0">
    <Grid ColumnDefinitions="*,Auto"><StackPanel VerticalAlignment="Center"><TextBlock Text="MIAU ⌄" FontSize="19" FontWeight="SemiBold"/><TextBlock x:Name="StatusText" Classes="muted" Text="● qwen2.5-coder:7b (local)" FontSize="12"/></StackPanel><Button Grid.Column="1" Classes="nav" Content="Limpar" Click="NewTask"/></Grid>
   </Border>
   <Grid Grid.Row="1">
@@ -45,10 +45,10 @@
    </StackPanel>
    <ScrollViewer x:Name="Scroller" IsVisible="False" VerticalScrollBarVisibility="Auto"><StackPanel x:Name="Thread" Margin="46,30" Spacing="14"/></ScrollViewer>
   </Grid>
-  <Border Grid.Row="2" Margin="28,12,28,24" Padding="14" CornerRadius="18" Background="#12171C" BorderBrush="#2A3138" BorderThickness="1">
+  <Border Grid.Row="2" Margin="28,12,28,24" Padding="14" CornerRadius="14" Background="#0D0F11" BorderBrush="#24282D" BorderThickness="1">
    <Grid RowDefinitions="Auto,Auto,Auto">
     <TextBlock x:Name="AttachmentText" Classes="muted" FontSize="11" IsVisible="False" TextWrapping="Wrap" Margin="4,0,4,8"/>
-    <TextBox Grid.Row="1" x:Name="PromptBox" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="82" Background="#0D1115" BorderBrush="#242B32" BorderThickness="1" CornerRadius="10" Padding="12" Watermark="Digite sua mensagem..."/>
+    <TextBox Grid.Row="1" x:Name="PromptBox" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="82" Background="#090B0D" BorderBrush="#24282D" BorderThickness="1" CornerRadius="10" Padding="12" Watermark="Digite sua mensagem..."/>
     <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,*,Auto" Margin="0,11,0,0">
      <Button Classes="icon" Content="＋" ToolTip.Tip="Adicionar arquivo ou imagem" Click="AddAttachment"/>
      <Button Grid.Column="1" Classes="icon" Content="▧" Margin="8,0,0,0" ToolTip.Tip="Adicionar vários arquivos" Click="AddLibrary"/>
@@ -60,7 +60,7 @@
   </Border>
  </Grid>
 
- <Border Grid.Column="2" Background="#111519" BorderBrush="#282E34" BorderThickness="1,0,0,0">
+ <Border Grid.Column="2" Background="#090A0C" BorderBrush="#202328" BorderThickness="1,0,0,0">
   <ScrollViewer><StackPanel Margin="22" Spacing="12">
    <TextBlock Text="MIAU1-Coder v0" FontWeight="SemiBold"/>
    <TextBlock Classes="muted" Text="Modelo: qwen2.5-coder:7b" TextWrapping="Wrap"/>
@@ -70,7 +70,7 @@
     <CheckBox Grid.Column="1" x:Name="StopAfterTaskCheck" Content="Parar após tarefa" VerticalAlignment="Center" IsVisible="False"/>
    </Grid>
    <TextBlock x:Name="CurrentJobText" Classes="muted" Text="Aguardando trabalho" TextWrapping="Wrap"/>
-   <Border Background="#0B0E11" BorderBrush="#282E34" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,4,0,4">
+   <Border Background="#050607" BorderBrush="#24282D" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,4,0,4">
     <Grid RowDefinitions="Auto,Auto,*">
      <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,9">
       <Ellipse x:Name="ExecutionDot" Width="9" Height="9" Fill="#7D858D" VerticalAlignment="Center"/>
@@ -91,7 +91,7 @@
    </Border>
    <Button Content="Executar diagnóstico" Click="RunDiagnostics"/>
    <Separator Margin="0,12,0,4"/><TextBlock Text="ALTERAÇÕES" FontWeight="SemiBold"/><TextBlock x:Name="ChangeSummary" Classes="muted" Text="Nenhuma alteração" TextWrapping="Wrap"/>
-   <TextBox x:Name="DiffBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap" Height="220" FontFamily="Menlo,Consolas,monospace" FontSize="10" Background="#0B0E11"/><Button Content="Atualizar diff" ToolTip.Tip="Atualizar e conferir as alterações atuais do workspace no Git" Click="RefreshDiff"/>
+   <TextBox x:Name="DiffBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap" Height="220" FontFamily="Menlo,Consolas,monospace" FontSize="10" Background="#050607"/><Button Content="Atualizar diff" ToolTip.Tip="Atualizar e conferir as alterações atuais do workspace no Git" Click="RefreshDiff"/>
   </StackPanel></ScrollViewer>
  </Border>
 </Grid></Window>
