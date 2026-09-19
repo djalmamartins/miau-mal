@@ -16,6 +16,7 @@ public partial class MainWindow : Window
     readonly GitHubJobService jobs = new();
     readonly TaskReportService reports = new();
     readonly MemoryService memory = new();
+    readonly ConversationService conversations = new();
     CancellationTokenSource? cts;
     CancellationTokenSource? runnerCts;
     string? workspace;
@@ -77,6 +78,7 @@ public partial class MainWindow : Window
 
     void NewTask(object? s, RoutedEventArgs e)
     {
+        conversations.NewSession();
         Thread.Children.Clear();
         PromptBox.Text = "";
         Welcome.IsVisible = true;
@@ -84,6 +86,20 @@ public partial class MainWindow : Window
     }
 
     void Stop(object? s, RoutedEventArgs e) => cts?.Cancel();
+
+    void ShowConversations(object? s, RoutedEventArgs e)
+    {
+        Welcome.IsVisible = false; Scroller.IsVisible = true; Thread.Children.Clear();
+        var recent = conversations.Recent().ToArray();
+        if (recent.Length == 0) { Add("MIAU", "Nenhuma conversa salva. Até agora eu estava falando sozinho, o que explica muita coisa."); return; }
+        foreach (var item in recent)
+        {
+            var b = new Button { Content = $"{item.At:dd/MM HH:mm}  {item.Preview}", HorizontalContentAlignment = HorizontalAlignment.Left, MaxWidth = 780 };
+            var id = item.Id;
+            b.Click += (_, _) => { Thread.Children.Clear(); foreach (var m in conversations.Read(id)) Add(m.Role, m.Text); };
+            Thread.Children.Add(b);
+        }
+    }
 
     async void AddAttachment(object? s, RoutedEventArgs e) => await PickAttachments(false);
     async void AddLibrary(object? s, RoutedEventArgs e) => await PickAttachments(true);
@@ -219,6 +235,7 @@ public partial class MainWindow : Window
         Welcome.IsVisible = false;
         Scroller.IsVisible = true;
         Add("Você", prompt);
+        await conversations.AppendAsync("Você", prompt, workspace);
         PromptBox.Text = "";
         attachments.Clear();
         AttachmentText.Text = "";
@@ -243,6 +260,7 @@ public partial class MainWindow : Window
                 }));
             activity.Text = "";
             Add("MIAU", result);
+            await conversations.AppendAsync("MIAU", result, workspace);
             await memory.RememberAsync(workspace, prompt, result, cts.Token);
             Activity("Tarefa concluída e registrada na memória local.");
             await RefreshChanges();
