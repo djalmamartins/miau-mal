@@ -10,7 +10,7 @@ public sealed class SelfRepairService
     readonly string appData;
     public SelfRepairService(string? appData = null) => this.appData = appData ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MIAU");
 
-    public async Task<IReadOnlyList<RepairCandidate>> DetectAsync(CancellationToken ct)
+    public async Task<IReadOnlyList<RepairCandidate>> DetectAsync(CancellationToken ct, int evidenceThreshold = 3)
     {
         var recovery = Path.Combine(appData, "dataset", "recovery");
         if (!Directory.Exists(recovery)) return [];
@@ -18,7 +18,7 @@ public sealed class SelfRepairService
         foreach (var file in Directory.EnumerateFiles(recovery, "*.jsonl", SearchOption.AllDirectories))
             foreach (var line in await File.ReadAllLinesAsync(file, ct))
                 try { using var d=JsonDocument.Parse(line); var root=d.RootElement; var key=root.TryGetProperty("FailedTool",out var t)?t.ToString():"unknown"; failures[key]=failures.GetValueOrDefault(key)+1; } catch { }
-        return failures.Where(x=>x.Value>=3).OrderByDescending(x=>x.Value)
+        return failures.Where(x=>x.Value>=Math.Max(2, evidenceThreshold)).OrderByDescending(x=>x.Value)
             .Select(x=>new RepairCandidate($"self-repair-{Slug(x.Key)}", $"{x.Key} falhou repetidamente", x.Value,
                 $"Analise as falhas recorrentes da ferramenta {x.Key}. Corrija apenas a implementação diretamente relacionada, preserve compatibilidade e execute build e testes."))
             .ToArray();
