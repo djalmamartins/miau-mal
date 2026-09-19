@@ -16,5 +16,6 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="Assets/miau-logo.base64" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Prompts/miau1-coder-v0.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
