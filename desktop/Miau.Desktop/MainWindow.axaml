@@ -1,27 +1,65 @@
-<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:Class="Miau.Desktop.MainWindow" Title="MIAU" Width="1240" Height="780" MinWidth="900" MinHeight="600">
-<Grid ColumnDefinitions="230,*,300" RowDefinitions="*">
- <Border Grid.Column="0" BorderBrush="#303030" BorderThickness="0,0,1,0" Padding="14">
-  <Grid RowDefinitions="Auto,Auto,*,Auto">
-   <TextBlock Text="🐱  MIAU" FontSize="20" FontWeight="SemiBold"/>
-   <Button Grid.Row="1" Margin="0,18,0,12" Content="+ Nova tarefa" Click="NewTask"/>
-   <StackPanel Grid.Row="2"><TextBlock Text="AGENTE LOCAL" Opacity=".55" FontSize="11"/><TextBlock Text="qwen2.5-coder:7b" Margin="0,6,0,0"/><TextBlock x:Name="WorkspaceText" Text="Nenhum projeto aberto" TextWrapping="Wrap" Margin="0,14,0,0" Opacity=".7"/></StackPanel>
-   <Button Grid.Row="3" Content="Abrir projeto…" Click="OpenWorkspace"/>
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ x:Class="Miau.Desktop.MainWindow" Title="MIAU" Width="1536" Height="960" MinWidth="1100" MinHeight="700"
+ Background="#101316">
+<Window.Styles>
+ <Style Selector="Button"><Setter Property="CornerRadius" Value="8"/><Setter Property="Padding" Value="12,9"/></Style>
+ <Style Selector="Button.nav"><Setter Property="HorizontalContentAlignment" Value="Left"/><Setter Property="Background" Value="Transparent"/><Setter Property="Margin" Value="0,2"/></Style>
+ <Style Selector="TextBlock.muted"><Setter Property="Foreground" Value="#9DA3AA"/></Style>
+</Window.Styles>
+<Grid ColumnDefinitions="300,*,320">
+ <!-- Sidebar -->
+ <Border Grid.Column="0" Background="#15191D" BorderBrush="#292E33" BorderThickness="0,0,1,0">
+  <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="22">
+   <StackPanel Orientation="Horizontal" Spacing="12"><TextBlock Text="🐱" FontSize="42"/><StackPanel VerticalAlignment="Center"><TextBlock Text="MIAU" FontSize="26" FontWeight="Bold"/><TextBlock Classes="muted" Text="Seu agente local"/></StackPanel></StackPanel>
+   <Button Grid.Row="1" Margin="0,24,0,18" Content="＋  Nova conversa" Click="NewTask"/>
+   <StackPanel Grid.Row="2">
+    <Button Classes="nav" Content="▣   Conversas"/><Button Classes="nav" Content="▱   Projetos" Click="OpenWorkspace"/>
+    <Button Classes="nav" Content="♙   Agentes"/><Button Classes="nav" Content="◇   Modelos"/><Button Classes="nav" Content="⌕   Ferramentas"/><Button Classes="nav" Content="⚙   Configurações"/>
+   </StackPanel>
+   <StackPanel Grid.Row="3" Margin="6,26,0,0"><TextBlock Classes="muted" Text="PROJETO ATUAL" FontSize="11"/><TextBlock x:Name="WorkspaceText" Text="Nenhum projeto aberto" TextWrapping="Wrap" Margin="0,8,0,0"/></StackPanel>
+   <StackPanel Grid.Row="4"><Separator/><TextBlock Text="DM   Djalma Martins" Margin="4,14,0,0"/></StackPanel>
   </Grid>
  </Border>
- <Grid Grid.Column="1" RowDefinitions="Auto,*,Auto">
-  <Border Padding="18,12" BorderBrush="#303030" BorderThickness="0,0,0,1"><Grid ColumnDefinitions="*,Auto"><TextBlock Text="Coding Agent" FontSize="16" FontWeight="SemiBold"/><TextBlock Grid.Column="1" x:Name="StatusText" Text="Ollama local" Opacity=".6"/></Grid></Border>
-  <ScrollViewer Grid.Row="1" x:Name="Scroller"><StackPanel x:Name="Thread" Margin="28,24" Spacing="14"><TextBlock Text="O que vamos construir?" FontSize="24" FontWeight="SemiBold"/><TextBlock Text="Abra um projeto e peça ao MIAU para analisar, criar ou corrigir código." Opacity=".65" TextWrapping="Wrap"/></StackPanel></ScrollViewer>
-  <Border Grid.Row="2" Margin="20" Padding="10" CornerRadius="8" BorderBrush="#454545" BorderThickness="1"><Grid RowDefinitions="Auto,Auto">
-   <TextBox x:Name="PromptBox" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="70" Watermark="Peça ao MIAU para trabalhar no projeto…"/>
-   <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto" Margin="0,8,0,0"><TextBlock Text="Arquivos e comandos locais" Opacity=".5" VerticalAlignment="Center"/><Button Grid.Column="1" x:Name="StopButton" Content="Parar" IsEnabled="False" Click="Stop"/><Button Grid.Column="2" x:Name="SendButton" Content="Enviar ↑" Margin="8,0,0,0" Click="Send"/></Grid>
-  </Grid></Border>
- </Grid>
- <Border Grid.Column="2" BorderBrush="#303030" BorderThickness="1,0,0,0" Padding="14">
-  <Grid RowDefinitions="Auto,Auto,*,Auto">
-   <TextBlock Text="Alterações" FontSize="16" FontWeight="SemiBold"/>
-   <TextBlock Grid.Row="1" x:Name="ChangeSummary" Text="Nenhuma alteração" Margin="0,8,0,12" Opacity=".6"/>
-   <ScrollViewer Grid.Row="2"><TextBox x:Name="DiffBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap" FontFamily="Menlo,Consolas,monospace" FontSize="11" Background="Transparent" BorderThickness="0"/></ScrollViewer>
-   <Button Grid.Row="3" Content="Atualizar diff" Click="RefreshDiff"/>
+
+ <!-- Center -->
+ <Grid Grid.Column="1" RowDefinitions="72,*,Auto">
+  <Border BorderBrush="#292E33" BorderThickness="0,0,0,1" Padding="28,0">
+   <Grid ColumnDefinitions="*,Auto"><StackPanel VerticalAlignment="Center"><TextBlock Text="MIAU⌄" FontSize="19" FontWeight="SemiBold"/><TextBlock x:Name="StatusText" Classes="muted" Text="● qwen2.5-coder:7b (local)" FontSize="12"/></StackPanel><Button Grid.Column="1" Classes="nav" Content="Limpar" Click="NewTask"/></Grid>
+  </Border>
+  <Grid Grid.Row="1">
+   <StackPanel x:Name="Welcome" HorizontalAlignment="Center" VerticalAlignment="Center" Width="790">
+    <TextBlock Text="🐱" FontSize="72" HorizontalAlignment="Center"/>
+    <TextBlock Text="Como posso ajudar?" FontSize="36" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,8"/>
+    <TextBlock Classes="muted" Text="Codifique. Planeje. Analise. Faça mais com o MIAU." FontSize="18" HorizontalAlignment="Center"/>
+    <Grid ColumnDefinitions="*,*,*,*" Margin="0,42,0,0">
+     <Button Margin="5" Height="120" Content="&lt;/&gt;  Criar código&#10;&#10;Gere, refatore ou explique código."/>
+     <Button Grid.Column="1" Margin="5" Height="120" Content="▤  Analisar projeto&#10;&#10;Leia e entenda o seu repositório."/>
+     <Button Grid.Column="2" Margin="5" Height="120" Content="&gt;_  Resolver erros&#10;&#10;Cole o erro e encontre a solução."/>
+     <Button Grid.Column="3" Margin="5" Height="120" Content="◉  Planejar&#10;&#10;Crie um plano de desenvolvimento."/>
+    </Grid>
+   </StackPanel>
+   <ScrollViewer x:Name="Scroller" IsVisible="False"><StackPanel x:Name="Thread" Margin="42,28" Spacing="14"/></ScrollViewer>
   </Grid>
+  <Border Grid.Row="2" Margin="28,12,28,24" Padding="14" CornerRadius="18" Background="#171B1F" BorderBrush="#343A40" BorderThickness="1">
+   <Grid RowDefinitions="Auto,Auto">
+    <TextBox x:Name="PromptBox" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="78" Background="Transparent" BorderThickness="0" Watermark="Digite sua mensagem..."/>
+    <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,10,0,0"><Button Content="＋"/><TextBlock Grid.Column="1" Classes="muted" Text="Agente" VerticalAlignment="Center" Margin="10,0"/><Button Grid.Column="2" x:Name="StopButton" Content="Parar" IsEnabled="False" Click="Stop"/><Button Grid.Column="3" x:Name="SendButton" Content="Enviar  →" Margin="8,0,0,0" Click="Send"/></Grid>
+   </Grid>
+  </Border>
+ </Grid>
+
+ <!-- Context panel -->
+ <Border Grid.Column="2" Background="#13171B" BorderBrush="#292E33" BorderThickness="1,0,0,0">
+  <ScrollViewer><StackPanel Margin="22" Spacing="12">
+   <TextBlock Classes="muted" Text="AGENTE" FontSize="11"/><Border Background="#1B2025" CornerRadius="8" Padding="14"><TextBlock Text="●  MIAU"/></Border><TextBlock Classes="muted" Text="Seu assistente de desenvolvimento"/>
+   <TextBlock Classes="muted" Text="MODELO" FontSize="11" Margin="0,20,0,0"/><Border Background="#1B2025" CornerRadius="8" Padding="14"><TextBlock Text="qwen2.5-coder:7b     ⌄"/></Border><TextBlock Classes="muted" Text="Modelo local via Ollama"/>
+   <TextBlock Classes="muted" Text="FERRAMENTAS" FontSize="11" Margin="0,20,0,0"/>
+   <CheckBox Content="Terminal" IsChecked="True"/><CheckBox Content="Sistema de arquivos" IsChecked="True"/><CheckBox Content="Git" IsChecked="True"/><CheckBox Content="Navegação web" IsChecked="False"/><CheckBox Content="Banco de dados" IsChecked="False"/>
+   <TextBlock Classes="muted" Text="CONTEXTO" FontSize="11" Margin="0,20,0,0"/><Button Content="＋  Adicionar contexto"/><TextBlock Classes="muted" Text="Adicione arquivos ou pastas para dar mais contexto ao MIAU." TextWrapping="Wrap"/>
+   <Separator Margin="0,18,0,4"/>
+   <TextBlock Text="ALTERAÇÕES" FontWeight="SemiBold"/><TextBlock x:Name="ChangeSummary" Classes="muted" Text="Nenhuma alteração" TextWrapping="Wrap"/>
+   <TextBox x:Name="DiffBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap" Height="230" FontFamily="Menlo,Consolas,monospace" FontSize="10" Background="#0E1114"/>
+   <Button Content="Atualizar diff" Click="RefreshDiff"/>
+  </StackPanel></ScrollViewer>
  </Border>
 </Grid></Window>
