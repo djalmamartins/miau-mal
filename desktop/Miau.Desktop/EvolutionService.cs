@@ -27,7 +27,8 @@ public sealed class EvolutionService
         var retries = documents.Sum(x => Number(x, "Retries", "retries")); var quality = documents.Select(x => Decimal(x, "QualityScore", "quality_score")).Where(x => x > 0).ToArray();
         var durations = documents.Select(x => DurationSeconds(x)).Where(x => x > 0).ToArray();
         var toolEvents = documents.SelectMany(ToolResults).ToArray();
-        var scopeViolations = rejected.Count(x => Text(x, "reason").Contains("escopo", StringComparison.OrdinalIgnoreCase) || Text(x, "reason").Contains("scope", StringComparison.OrdinalIgnoreCase));\n        var skills = BuildSkills(toolEvents, documents, recoveries, scopeViolations);
+        var scopeViolations = rejected.Count(x => Text(x, "reason").Contains("escopo", StringComparison.OrdinalIgnoreCase) || Text(x, "reason").Contains("scope", StringComparison.OrdinalIgnoreCase));
+        var skills = BuildSkills(toolEvents, documents, recoveries, scopeViolations);
         var buildsPassed = CountTool(toolEvents, "build", true); var buildsFailed = CountTool(toolEvents, "build", false);
         var testsPassed = CountTool(toolEvents, "test", true); var testsFailed = CountTool(toolEvents, "test", false);
         var recovered = recoveries.Count(x => Bool(x, "Recovered", "recovered")); var total = completed + failed;
@@ -57,10 +58,35 @@ public sealed class EvolutionService
     }
     static IReadOnlyList<SkillMetric> BuildSkills((string Name, bool Success)[] tools, List<JsonElement> docs, List<JsonElement> recoveries, int scopeViolations)
     {
-        var groups = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase) { ["Leitura"] = ["read_file", "list_files", "search"], ["Edição"] = ["write_file", "replace_in_file", "apply_patch"], ["Build"] = ["build"], ["Testes"] = ["test"], ["Git"] = ["git_status", "git_diff"], ["Recovery"] = [], ["Scope"] = [] };
-        return groups.Select(g => { var attempts = g.Key == "Recovery" ? docs.Sum(x => Number(x, "Retries", "retries")) : g.Key == "Scope" ? docs.Count : tools.Count(x => g.Value.Contains(x.Name, StringComparer.OrdinalIgnoreCase)); var failures = g.Key == "Recovery" ? 0 : g.Key == "Scope" ? 0 : tools.Count(x => g.Value.Contains(x.Name, StringComparer.OrdinalIgnoreCase) && !x.Success); return new SkillMetric(g.Key, attempts, Math.Max(0, attempts - failures), failures, Rate(Math.Max(0, attempts - failures), attempts)); }).ToArray();
+        var groups = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Leitura"] = ["read_file", "list_files", "search"],
+            ["Edição"] = ["write_file", "replace_in_file", "apply_patch", "delete_file"],
+            ["Build"] = ["build"],
+            ["Testes"] = ["test"],
+            ["Git"] = ["git_status", "git_diff"]
+        };
+        var result = groups.Select(g =>
+        {
+            var attempts = tools.Count(x => g.Value.Contains(x.Name, StringComparer.OrdinalIgnoreCase));
+            var failures = tools.Count(x => g.Value.Contains(x.Name, StringComparer.OrdinalIgnoreCase) && !x.Success);
+            return new SkillMetric(g.Key, attempts, attempts - failures, failures, Rate(attempts - failures, attempts));
+        }).ToList();
+        var recoveryAttempts = recoveries.Count;
+        var recoverySuccess = recoveries.Count(x => Bool(x, "Recovered", "recovered"));
+        result.Add(new SkillMetric("Recovery", recoveryAttempts, recoverySuccess, recoveryAttempts - recoverySuccess, Rate(recoverySuccess, recoveryAttempts)));
+        var scopeAttempts = docs.Count + scopeViolations;
+        result.Add(new SkillMetric("Scope", scopeAttempts, docs.Count, scopeViolations, Rate(docs.Count, scopeAttempts)));
+        return result;
     }
-    static string SummarizeActivity(JsonElement x)\n    {\n        var at = Timestamp(x); var raw = DatasetService.Redact(Text(x, "Task", "request", "FinalResult", "reason")).Replace("\\r", " ").Replace("\\n", " ").Trim();\n        if (raw.Length > 180) raw = raw[..180] + "…";\n        return $"{(at == DateTimeOffset.MinValue ? "sem data" : at.ToString("g"))} · {raw}";\n    }\n    static int CountTool((string Name, bool Success)[] tools, string name, bool success) => tools.Count(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase) && x.Success == success);
+    static string SummarizeActivity(JsonElement x)
+    {
+        var at = Timestamp(x); var raw = DatasetService.Redact(Text(x, "Task", "request", "FinalResult", "reason")).Replace("\\r", " ").Replace("\
+", " ").Trim();
+        if (raw.Length > 180) raw = raw[..180] + "…";
+        return $"{(at == DateTimeOffset.MinValue ? "sem data" : at.ToString("g"))} · {raw}";
+    }
+    static int CountTool((string Name, bool Success)[] tools, string name, bool success) => tools.Count(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase) && x.Success == success);
     async Task<List<EvolutionPoint>> LoadHistory(CancellationToken ct) { var file = Path.Combine(appData, "evolution", "history.jsonl"); if (!File.Exists(file)) return []; var result = new List<EvolutionPoint>(); foreach (var line in await File.ReadAllLinesAsync(file, ct)) try { var x = JsonSerializer.Deserialize<EvolutionPoint>(line); if (x is not null) result.Add(x); } catch { } return result; }
     async Task SaveHistory(IEnumerable<EvolutionPoint> history, CancellationToken ct) { var dir = Path.Combine(appData, "evolution"); Directory.CreateDirectory(dir); await File.WriteAllLinesAsync(Path.Combine(dir, "history.jsonl"), history.TakeLast(500).Select(x => JsonSerializer.Serialize(x)), ct); }
     static bool Changed(EvolutionPoint a, EvolutionPoint b) => a.TasksCompleted != b.TasksCompleted || a.AverageQuality != b.AverageQuality || a.SuccessRate != b.SuccessRate;
