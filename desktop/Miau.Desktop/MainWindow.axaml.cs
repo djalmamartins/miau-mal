@@ -17,6 +17,7 @@ public partial class MainWindow : Window
     readonly TaskReportService reports = new();
     readonly MemoryService memory = new();
     readonly ConversationService conversations = new();
+    readonly DiagnosticsService diagnostics = new();
     CancellationTokenSource? cts;
     CancellationTokenSource? runnerCts;
     string? workspace;
@@ -25,6 +26,7 @@ public partial class MainWindow : Window
     DateTimeOffset executionStarted;
     DateTimeOffset lastExecutionPulse;
     bool executionBlink;
+    ExecutionEventType? activeExecution;
 
     public MainWindow()
     {
@@ -241,6 +243,13 @@ public partial class MainWindow : Window
                 ExecutionDot.Fill = new SolidColorBrush(Color.Parse("#55D978"));
                 ExecutionDot.Opacity = 1;
                 break;
+            case "cancelled":
+                executionTimer.Stop();
+                ExecutionStateText.Text = "Cancelado";
+                ExecutionStateText.Foreground = new SolidColorBrush(Color.Parse("#E8B84A"));
+                ExecutionDot.Fill = new SolidColorBrush(Color.Parse("#E8B84A"));
+                ExecutionDot.Opacity = 1;
+                break;
             default:
                 executionTimer.Stop();
                 ExecutionStateText.Text = "Aguardando";
@@ -273,7 +282,7 @@ public partial class MainWindow : Window
         ExecutionDot.Opacity = executionBlink ? 1 : .28;
 
         // A red indicator is reserved for a real lack of progress, not a cosmetic pause.
-        if (now - lastExecutionPulse > TimeSpan.FromMinutes(2))
+        if (now - lastExecutionPulse > TimeSpan.FromMinutes(2) && activeExecution is null)
         {
             executionTimer.Stop();
             ExecutionStateText.Text = "Sem resposta";
@@ -297,6 +306,51 @@ public partial class MainWindow : Window
         while (ActivityFeed.Children.Count > 120)
             ActivityFeed.Children.RemoveAt(0);
         Dispatcher.UIThread.Post(() => ActivityScroller.ScrollToEnd(), DispatcherPriority.Background);
+    }
+
+    void Timeline(ExecutionEvent ev)
+    {
+        PulseExecution();
+        activeExecution = ev.Type switch
+        {
+            ExecutionEventType.ModelRequestStarted or ExecutionEventType.ToolStarted or ExecutionEventType.CommandStarted or ExecutionEventType.DiffStarted or ExecutionEventType.BuildStarted or ExecutionEventType.TestsStarted => ev.Type,
+            ExecutionEventType.ModelRequestCompleted or ExecutionEventType.ToolCompleted or ExecutionEventType.ToolFailed or ExecutionEventType.CommandCompleted or ExecutionEventType.CommandFailed or ExecutionEventType.DiffCompleted or ExecutionEventType.BuildCompleted or ExecutionEventType.BuildFailed or ExecutionEventType.TestsCompleted or ExecutionEventType.TestsFailed => null,
+            _ => activeExecution
+        };
+        ExecutionStateText.Text = ev.Type == ExecutionEventType.ModelRequestStarted ? "Modelo processando" : ev.Type.ToString();
+        UpdatePhaseChecklist(ev.Phase);
+        var symbol = ev.Success switch { true => "✓", false => "✕", _ => "›" };
+        var elapsed = ev.Duration is { } d ? $" · {d.TotalSeconds:0.0}s" : "";
+        var title = $"{symbol} {ev.Description}{elapsed}" + (string.IsNullOrWhiteSpace(ev.Target) ? "" : $"\n  {ev.Target}");
+        Control item = string.IsNullOrWhiteSpace(ev.Details)
+            ? new TextBlock { Text = title, TextWrapping = TextWrapping.Wrap, FontSize = 11 }
+            : new Expander
+            {
+                Header = new TextBlock { Text = title, TextWrapping = TextWrapping.Wrap, FontSize = 11 },
+                Content = new TextBox { Text = ev.Details.Length > 8000 ? ev.Details[..8000] + "\n[preview truncado]" : ev.Details, IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.NoWrap, MaxHeight = 180, FontFamily = new FontFamily("Menlo,Consolas,monospace"), FontSize = 10 }
+            };
+        ActivityFeed.Children.Add(item);
+        while (ActivityFeed.Children.Count > 120) ActivityFeed.Children.RemoveAt(0);
+        Dispatcher.UIThread.Post(() => ActivityScroller.ScrollToEnd(), DispatcherPriority.Background);
+    }
+
+    void UpdatePhaseChecklist(JobPhase phase)
+    {
+        PhaseUnderstand.Text = Mark(phase, JobPhase.Understanding, "Entender");
+        PhaseInspect.Text = Mark(phase, JobPhase.Inspecting, "Inspecionar");
+        PhasePlan.Text = Mark(phase, JobPhase.Planning, "Planejar");
+        PhaseEdit.Text = Mark(phase, JobPhase.Executing, "Editar");
+        PhaseVerify.Text = Mark(phase, JobPhase.Verifying, "Verificar");
+        PhaseTest.Text = Mark(phase, JobPhase.Testing, "Testar");
+    }
+
+    static string Mark(JobPhase current, JobPhase target, string label) => current > target ? $"✓ {label}" : current == target ? $"● {label}" : $"○ {label}";
+
+    async void RunDiagnostics(object? sender, RoutedEventArgs e)
+    {
+        Activity("MIAU Diagnostics");
+        foreach (var item in await diagnostics.RunAsync(workspace, agent.Model, CancellationToken.None))
+            Activity($"{(item.Success ? "✓" : "✕")} {item.Name}: {item.Detail}");
     }
 
     async void Send(object? s, RoutedEventArgs e)
@@ -329,14 +383,8 @@ public partial class MainWindow : Window
         {
             var recalled = await memory.RecallAsync(workspace, prompt, cts.Token);
             var effectivePrompt = string.IsNullOrWhiteSpace(recalled) ? prompt : $"{prompt}\n\nMEMÓRIA RELEVANTE DESTE PROJETO:\n{recalled}";
-            var result = await agent.RunAsync(workspace, effectivePrompt, cts.Token,
-                ev => Dispatcher.UIThread.Post(() =>
-                {
-                    PulseExecution();
-                    ShowEnginePhase(ev);
-                    activity.Text = ev;
-                    Activity(ev);
-                }));
+            var result = await agent.RunWithEventsAsync(workspace, effectivePrompt, cts.Token,
+                ev => Dispatcher.UIThread.Post(() => { activity.Text = ev.Description; Timeline(ev); }));
             activity.Text = "";
             Add("MIAU", result);
             // The model/tool execution is finished at this point. Mark it complete before
@@ -348,7 +396,7 @@ public partial class MainWindow : Window
             Activity("Resultado registrado na memória local.");
             await RefreshChanges();
         }
-        catch (OperationCanceledException) { activity.Text = "Tarefa interrompida."; Activity("Tarefa interrompida."); SetExecutionState("idle"); }
+        catch (OperationCanceledException) { activity.Text = "Tarefa cancelada."; Activity("Tarefa cancelada pelo usuário."); SetExecutionState("cancelled"); }
         catch (Exception ex) { activity.Text = "Erro: " + ex.Message; Activity("ERRO: " + ex.Message); SetExecutionState("failed"); }
         finally
         {

@@ -62,8 +62,8 @@
 
  <Border Grid.Column="2" Background="#111519" BorderBrush="#282E34" BorderThickness="1,0,0,0">
   <ScrollViewer><StackPanel Margin="22" Spacing="12">
-   <TextBlock Text="EXECUÇÃO" FontWeight="SemiBold"/>
-   <TextBlock Classes="muted" Text="Agente local • qwen2.5-coder:7b" TextWrapping="Wrap"/>
+   <TextBlock Text="MIAU1-Coder v0" FontWeight="SemiBold"/>
+   <TextBlock Classes="muted" Text="Modelo: qwen2.5-coder:7b" TextWrapping="Wrap"/>
    <TextBlock x:Name="AgentIdText" Classes="muted" FontSize="11" TextWrapping="Wrap"/>
    <Grid ColumnDefinitions="*,Auto" Margin="0,4,0,0">
     <ToggleSwitch x:Name="AutonomousToggle" Content="Modo autônomo" Checked="AutonomousChanged" Unchecked="AutonomousChanged"/>
@@ -71,19 +71,25 @@
    </Grid>
    <TextBlock x:Name="CurrentJobText" Classes="muted" Text="Aguardando trabalho" TextWrapping="Wrap"/>
    <Border Background="#0B0E11" BorderBrush="#282E34" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,4,0,4">
-    <Grid RowDefinitions="Auto,*">
+    <Grid RowDefinitions="Auto,Auto,*">
      <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,9">
       <Ellipse x:Name="ExecutionDot" Width="9" Height="9" Fill="#7D858D" VerticalAlignment="Center"/>
       <TextBlock Grid.Column="1" x:Name="ExecutionStateText" Text="Aguardando" Classes="muted" FontSize="11" Margin="8,0,0,0" VerticalAlignment="Center"/>
       <TextBlock Grid.Column="2" x:Name="ExecutionElapsedText" Text="" Classes="muted" FontSize="10" VerticalAlignment="Center"/>
      </Grid>
-    <ScrollViewer Grid.Row="1" x:Name="ActivityScroller" Height="235" VerticalScrollBarVisibility="Auto">
+    <Grid Grid.Row="1" ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto" Margin="0,0,0,9">
+     <TextBlock x:Name="PhaseUnderstand" Text="○ Entender"/><TextBlock Grid.Column="1" x:Name="PhaseInspect" Text="○ Inspecionar"/>
+     <TextBlock Grid.Row="1" x:Name="PhasePlan" Text="○ Planejar"/><TextBlock Grid.Row="1" Grid.Column="1" x:Name="PhaseEdit" Text="○ Editar"/>
+     <TextBlock Grid.Row="2" x:Name="PhaseVerify" Text="○ Verificar"/><TextBlock Grid.Row="2" Grid.Column="1" x:Name="PhaseTest" Text="○ Testar"/>
+    </Grid>
+    <ScrollViewer Grid.Row="2" x:Name="ActivityScroller" Height="235" VerticalScrollBarVisibility="Auto">
      <StackPanel x:Name="ActivityFeed" Spacing="7">
       <TextBlock Classes="muted" Text="Aguardando uma tarefa…" TextWrapping="Wrap"/>
      </StackPanel>
     </ScrollViewer>
     </Grid>
    </Border>
+   <Button Content="Executar diagnóstico" Click="RunDiagnostics"/>
    <Separator Margin="0,12,0,4"/><TextBlock Text="ALTERAÇÕES" FontWeight="SemiBold"/><TextBlock x:Name="ChangeSummary" Classes="muted" Text="Nenhuma alteração" TextWrapping="Wrap"/>
    <TextBox x:Name="DiffBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap" Height="220" FontFamily="Menlo,Consolas,monospace" FontSize="10" Background="#0B0E11"/><Button Content="Atualizar diff" ToolTip.Tip="Atualizar e conferir as alterações atuais do workspace no Git" Click="RefreshDiff"/>
   </StackPanel></ScrollViewer>
