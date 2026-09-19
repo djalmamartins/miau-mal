@@ -6,6 +6,7 @@ namespace Miau.Desktop;
 public sealed record RepairCandidate(string Id, string Reason, int EvidenceCount, string Prompt);
 public sealed record RepairDecision(string Id, bool Accepted, string Reason, DateTimeOffset At, string? PatchPath = null, string? BaseCommit = null, double BenchmarkBefore = 0, double BenchmarkAfter = 0, bool BuildPassed = false, bool TestsPassed = false);
 public sealed record RepairRunResult(string Id, bool Accepted, double BenchmarkBefore, double BenchmarkAfter, bool BuildPassed, bool TestsPassed, string Detail, string? PatchPath = null, string? BaseCommit = null);
+public sealed record RepairEvent(string Id, string State, DateTimeOffset At, string Detail);
 
 public sealed class SelfRepairService
 {
@@ -58,6 +59,7 @@ public sealed class SelfRepairService
                 }
             }
             await RecordDecisionAsync(new(candidate.Id, accepted, detail, DateTimeOffset.Now, patchPath, baseCommit, before, after, build, tests), ct);
+            await RecordEventAsync(new(candidate.Id, accepted ? "approved" : "rejected", DateTimeOffset.Now, detail), ct);
             return new(candidate.Id, accepted, before, after, build, tests, detail, patchPath, baseCommit);
         }
         finally { try { if (Directory.Exists(temp)) Directory.Delete(temp, true); } catch { } }
@@ -74,7 +76,9 @@ public sealed class SelfRepairService
             throw new InvalidOperationException("O projeto mudou desde o RepairJob; promoção bloqueada para evitar patch obsoleto.");
         await Run(sourceRoot, "git", ["apply", "--check", repair.PatchPath], ct);
         await Run(sourceRoot, "git", ["apply", repair.PatchPath], ct);
-        return await Run(sourceRoot, "git", ["diff", "--stat"], ct);
+        var stat = await Run(sourceRoot, "git", ["diff", "--stat"], ct);
+        await RecordEventAsync(new(repair.Id, "promoted", DateTimeOffset.Now, stat.Trim()), ct);
+        return stat;
     }
 
     public async Task RevertPromotionAsync(string sourceRoot, RepairRunResult repair, CancellationToken ct)
@@ -82,6 +86,7 @@ public sealed class SelfRepairService
         if (string.IsNullOrWhiteSpace(repair.PatchPath) || !File.Exists(repair.PatchPath)) throw new InvalidOperationException("Patch do reparo não encontrado.");
         await Run(sourceRoot, "git", ["apply", "--reverse", "--check", repair.PatchPath], ct);
         await Run(sourceRoot, "git", ["apply", "--reverse", repair.PatchPath], ct);
+        await RecordEventAsync(new(repair.Id, "reverted", DateTimeOffset.Now, "Patch promovido foi revertido."), ct);
     }
 
     static async Task<double> BenchmarkScore(AgentService agent, string manifest, CancellationToken ct, Action<string>? progress, string phase)
@@ -101,6 +106,22 @@ public sealed class SelfRepairService
         foreach (var line in await File.ReadAllLinesAsync(file, ct))
             try { var item = JsonSerializer.Deserialize<RepairDecision>(line); if (item is not null) items.Add(item); } catch { }
         return items.OrderByDescending(x => x.At).Take(Math.Max(1, limit)).ToArray();
+    }
+
+    public async Task<IReadOnlyList<RepairEvent>> RecentEventsAsync(CancellationToken ct, int limit = 50)
+    {
+        var file = Path.Combine(appData, "self-repair", "events.jsonl");
+        if (!File.Exists(file)) return [];
+        var items = new List<RepairEvent>();
+        foreach (var line in await File.ReadAllLinesAsync(file, ct))
+            try { var item = JsonSerializer.Deserialize<RepairEvent>(line); if (item is not null) items.Add(item); } catch { }
+        return items.OrderByDescending(x => x.At).Take(Math.Max(1, limit)).ToArray();
+    }
+
+    public async Task RecordEventAsync(RepairEvent item, CancellationToken ct)
+    {
+        var dir = Path.Combine(appData, "self-repair"); Directory.CreateDirectory(dir);
+        await File.AppendAllTextAsync(Path.Combine(dir, "events.jsonl"), JsonSerializer.Serialize(item) + Environment.NewLine, ct);
     }
 
     public async Task RecordDecisionAsync(RepairDecision decision, CancellationToken ct)
