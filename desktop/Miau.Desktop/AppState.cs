@@ -10,6 +10,11 @@ public sealed class AppState
     public string AgentId { get; set; } = $"{Environment.MachineName}-{(OperatingSystem.IsMacOS() ? "MAC" : OperatingSystem.IsWindows() ? "WIN" : "LOCAL")}";
     public bool AutonomousMode { get; set; }
     public int NextTaskDelaySeconds { get; set; } = 120;
+    public bool TrainingEnabled { get; set; }
+    public int TrainingIntervalHours { get; set; } = 6;
+    public int TrainingMaxTasksPerCycle { get; set; } = 3;
+    public bool SelfRepairEnabled { get; set; }
+    public int SelfRepairEvidenceThreshold { get; set; } = 3;
 
     static string FilePath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MIAU", "state.json");
