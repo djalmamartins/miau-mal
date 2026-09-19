@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/Miau.Agent/Miau.Agent.csproj" />
     <Project Path="src/Miau.Api/Miau.Api.csproj" />
     <Project Path="src/Miau.Cli/Miau.Cli.csproj" />
     <Project Path="src/Miau.Core/Miau.Core.csproj" />
