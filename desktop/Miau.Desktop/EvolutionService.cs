@@ -9,7 +9,7 @@ public sealed record EvolutionSnapshot(string AgentVersion, string Model, string
     int TasksTotal, int TasksCompleted, int TasksFailed, int TasksCancelled, double SuccessRate, int Experiences, int Memories,
     int Failures, int RecoveredFailures, int Retries, int BuildsPassed, int BuildsFailed, int TestsPassed, int TestsFailed,
     double AverageDurationSeconds, int DatasetCompleted, int DatasetRecovery, int DatasetRejected, int DatasetReview,
-    double AverageQualityScore, IReadOnlyList<SkillMetric> Skills, IReadOnlyList<string> RecentActivity, IReadOnlyList<EvolutionPoint> History);
+    double AverageQualityScore, int TrainingCycles, int TrainingTasks, int TrainingCompleted, int RepairDecisions, int RepairsAccepted, int RepairsRejected, IReadOnlyList<SkillMetric> Skills, IReadOnlyList<string> RecentActivity, IReadOnlyList<EvolutionPoint> History);
 
 public sealed class EvolutionService
 {
@@ -23,6 +23,12 @@ public sealed class EvolutionService
         var recoveries = await ReadDocuments(Path.Combine(dataset, "recovery"), ct);
         var rejected = await ReadDocuments(Path.Combine(dataset, "rejected"), ct); var review = await ReadDocuments(Path.Combine(dataset, "review"), ct);
         var memories = await ReadDocuments(Path.Combine(appData, "memory"), ct);
+        var trainingCycles = await ReadDocuments(Path.Combine(appData, "training"), ct);
+        var repairDecisions = await ReadDocuments(Path.Combine(appData, "self-repair"), ct);
+        var trainingTasks = trainingCycles.Sum(x => Number(x, "Attempted"));
+        var trainingCompleted = trainingCycles.Sum(x => Number(x, "Completed"));
+        var repairsAccepted = repairDecisions.Count(x => Bool(x, "Accepted"));
+        var repairsRejected = repairDecisions.Count - repairsAccepted;
         var completed = documents.Count; var failed = rejected.Count; var cancelled = rejected.Count(x => Text(x, "reason").Contains("cancel", StringComparison.OrdinalIgnoreCase));
         var retries = documents.Sum(x => Number(x, "Retries", "retries")); var quality = documents.Select(x => Decimal(x, "QualityScore", "quality_score")).Where(x => x > 0).ToArray();
         var durations = documents.Select(x => DurationSeconds(x)).Where(x => x > 0).ToArray();
@@ -41,7 +47,7 @@ public sealed class EvolutionService
         return new(Miau1Coder.AgentName, model, Miau1Coder.ProtocolVersion, Miau1Coder.DatasetSchemaVersion, total, completed, failed, cancelled,
             Rate(completed, total), documents.Count + recoveries.Count + rejected.Count, memories.Count, recoveries.Count, recovered, retries,
             buildsPassed, buildsFailed, testsPassed, testsFailed, durations.Length == 0 ? 0 : durations.Average(), completed, recoveries.Count,
-            rejected.Count, review.Count, quality.Length == 0 ? 0 : quality.Average(), skills, recent, history);
+            rejected.Count, review.Count, quality.Length == 0 ? 0 : quality.Average(), trainingCycles.Count, trainingTasks, trainingCompleted, repairDecisions.Count, repairsAccepted, repairsRejected, skills, recent, history);
     }
 
     async Task<List<JsonElement>> ReadDocuments(string directory, CancellationToken ct, bool topLevelOnly = false)
