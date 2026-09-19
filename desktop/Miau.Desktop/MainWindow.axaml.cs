@@ -182,6 +182,7 @@ public partial class MainWindow : Window
         ActivityFeed.Children.Add(line);
         while (ActivityFeed.Children.Count > 120)
             ActivityFeed.Children.RemoveAt(0);
+        Dispatcher.UIThread.Post(() => ActivityScroller.ScrollToEnd(), DispatcherPriority.Background);
     }
 
     async void Send(object? s, RoutedEventArgs e)
@@ -265,6 +266,7 @@ public partial class MainWindow : Window
             HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Left
         };
         Thread.Children.Add(bubble);
+        Dispatcher.UIThread.Post(() => Scroller.ScrollToEnd(), DispatcherPriority.Background);
     }
 
     async Task Message(string text)
