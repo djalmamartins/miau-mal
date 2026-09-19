@@ -331,10 +331,13 @@ public partial class MainWindow : Window
                 }));
             activity.Text = "";
             Add("MIAU", result);
+            // The model/tool execution is finished at this point. Mark it complete before
+            // bookkeeping (history, memory and diff refresh) so the UI never looks stuck.
+            SetExecutionState("done");
+            Activity("Execução concluída.");
             await conversations.AppendAsync("MIAU", result, workspace);
             await memory.RememberAsync(workspace, prompt, result, cts.Token);
-            Activity("Tarefa concluída e registrada na memória local.");
-            SetExecutionState("done");
+            Activity("Resultado registrado na memória local.");
             await RefreshChanges();
         }
         catch (OperationCanceledException) { activity.Text = "Tarefa interrompida."; Activity("Tarefa interrompida."); SetExecutionState("idle"); }
