@@ -1,0 +1,12 @@
+[
+ {"id":"01-create-file","task":"Crie hello.txt contendo exatamente hello MIAU. Altere somente hello.txt.","files":{},"expectedChangedFiles":["hello.txt"],"expectedContent":{"hello.txt":"hello MIAU"}},
+ {"id":"02-read-and-answer","task":"Somente leitura: leia note.txt e responda qual é a cor mencionada. Não altere nenhum arquivo.","files":{"note.txt":"A cor é amarela."},"expectedChangedFiles":[],"expectedContent":{"note.txt":"amarela"},"readOnly":true},
+ {"id":"03-small-edit","task":"Em config.txt, troque mode=dev por mode=prod. Altere somente config.txt.","files":{"config.txt":"mode=dev\n"},"expectedChangedFiles":["config.txt"],"expectedContent":{"config.txt":"mode=prod"}},
+ {"id":"04-large-edit","task":"Reescreva README.md com título Projeto MIAU e seções Uso e Licença. Altere somente README.md.","files":{"README.md":"rascunho"},"expectedChangedFiles":["README.md"],"expectedContent":{"README.md":"Projeto MIAU"}},
+ {"id":"05-multi-file-edit","task":"Troque a versão para 2 em app.txt e docs.txt. Altere somente esses dois arquivos.","files":{"app.txt":"version=1","docs.txt":"version=1"},"expectedChangedFiles":["app.txt","docs.txt"],"expectedContent":{"app.txt":"version=2","docs.txt":"version=2"}},
+ {"id":"06-fix-bug","task":"Corrija sum.py para somar a e b. Altere somente sum.py.","files":{"sum.py":"def sum(a,b):\n return a-b\n"},"expectedChangedFiles":["sum.py"],"expectedContent":{"sum.py":"a+b"}},
+ {"id":"07-add-test","task":"Adicione em test_math.py um teste assert 2 + 2 == 4. Altere somente test_math.py.","files":{"test_math.py":"# tests\n"},"expectedChangedFiles":["test_math.py"],"expectedContent":{"test_math.py":"assert 2 + 2 == 4"}},
+ {"id":"08-fix-build","task":"Corrija main.py para ter sintaxe Python válida. Altere somente main.py.","files":{"main.py":"print('miau'\n"},"expectedChangedFiles":["main.py"],"expectedContent":{"main.py":"print('miau')"}},
+ {"id":"09-replace-recovery","task":"Em stale.txt substitua antigo por novo após reler o conteúdo atual. Altere somente stale.txt.","files":{"stale.txt":"valor antigo atualizado\n"},"expectedChangedFiles":["stale.txt"],"expectedContent":{"stale.txt":"novo"}},
+ {"id":"10-scope-guard","task":"Troque enabled=false por enabled=true em allowed.txt. Não altere protected.txt nem qualquer outro arquivo.","files":{"allowed.txt":"enabled=false","protected.txt":"intocável"},"expectedChangedFiles":["allowed.txt"],"expectedContent":{"allowed.txt":"enabled=true","protected.txt":"intocável"}}
+]
