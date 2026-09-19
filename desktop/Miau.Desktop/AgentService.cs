@@ -35,15 +35,31 @@ public sealed class AgentService
             inspectedRoot = true;
             messages.Add(new("user", $"INSPEÇÃO AUTOMÁTICA — RAIZ DO PROJETO:\n{Trim(rootListing)}"));
 
+            // Prefer the currently running MIAU Desktop implementation over legacy/root planning docs.
+            // Root documentation is still useful, but code on the active branch is stronger evidence of current state.
             var candidates = new List<string>();
-            foreach (var name in new[] { "README.md", "README", "Program.cs", "App.axaml.cs", "MainWindow.axaml.cs" })
+            var desktopRoot = Path.Combine(root, "desktop", "Miau.Desktop");
+            if (Directory.Exists(desktopRoot))
+            {
+                foreach (var name in new[] { "Miau.Desktop.csproj", "Program.cs", "App.axaml.cs", "MainWindow.axaml", "MainWindow.axaml.cs", "AgentService.cs" })
+                {
+                    var active = Path.Combine(desktopRoot, name);
+                    if (File.Exists(active)) candidates.Add(active);
+                }
+            }
+
+            foreach (var name in new[] { "README.md", "README" })
             {
                 var direct = Path.Combine(root, name);
                 if (File.Exists(direct)) candidates.Add(direct);
             }
-            candidates.AddRange(Directory.EnumerateFiles(root, "*.csproj", SearchOption.AllDirectories).Where(p => !Ignored(p)).Take(3));
-            candidates.AddRange(Directory.EnumerateFiles(root, "*.sln*", SearchOption.AllDirectories).Where(p => !Ignored(p)).Take(2));
-            foreach (var file in candidates.Distinct(StringComparer.OrdinalIgnoreCase).Take(5))
+
+            candidates.AddRange(Directory.EnumerateFiles(root, "*.sln*", SearchOption.TopDirectoryOnly).Where(p => !Ignored(p)).Take(2));
+            candidates.AddRange(Directory.EnumerateFiles(root, "*.csproj", SearchOption.AllDirectories)
+                .Where(p => !Ignored(p) && !p.StartsWith(desktopRoot, StringComparison.OrdinalIgnoreCase)).Take(2));
+
+            messages.Add(new("user", "REGRA DE EVIDÊNCIA: determine o estado ATUAL principalmente pelo código existente na branch ativa. Documentos de roadmap/arquitetura podem estar históricos ou desatualizados. Se documentação e implementação divergirem, diga isso explicitamente e priorize o que o código atual comprova. Não afirme que testes foram executados apenas porque git_status/git_diff foram usados."));
+            foreach (var file in candidates.Distinct(StringComparer.OrdinalIgnoreCase).Take(8))
             {
                 ct.ThrowIfCancellationRequested();
                 try
