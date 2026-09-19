@@ -16,7 +16,7 @@ public sealed class AgentService
     {
         var messages = new List<ChatMessage>
         {
-            new("system", SystemPrompt),
+            new("system", SystemPrompt + $"\n\nPROJETO JÁ ABERTO PELO APLICATIVO:\nDiretório raiz: {root}\nVocê já está operando dentro desse diretório. Nunca peça ao usuário o caminho do projeto. Caminhos das ferramentas são relativos a essa raiz. Se a tarefa pede análise do projeto, comece inspecionando-o com as ferramentas disponíveis."),
             new("user", prompt)
         };
 
