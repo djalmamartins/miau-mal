@@ -1,4 +1,4 @@
-using Avalonia.Controls; using Avalonia.Interactivity; using Avalonia.Layout; using Avalonia.Media;
+using Avalonia.Controls; using Avalonia.Interactivity; using Avalonia.Layout; using Avalonia.Media; using Avalonia.Threading;
 namespace Miau.Desktop;
 public partial class MainWindow:Window {
  readonly AgentService agent=new(); CancellationTokenSource? cts; string? workspace;
