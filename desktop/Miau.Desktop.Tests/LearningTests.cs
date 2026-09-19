@@ -65,6 +65,19 @@ public sealed class LearningTests : IDisposable
         Assert.Equal("self-repair-replace-in-file", candidates[0].Id);
     }
 
+    [Fact] public async Task EvolutionCountsRepairDecisions()
+    {
+        var dir = Path.Combine(root, "self-repair"); Directory.CreateDirectory(dir);
+        await File.WriteAllLinesAsync(Path.Combine(dir, "decisions.jsonl"), [
+            "{\"Id\":\"a\",\"Accepted\":true,\"Reason\":\"ok\",\"At\":\"2026-09-19T10:00:00Z\"}",
+            "{\"Id\":\"b\",\"Accepted\":false,\"Reason\":\"regression\",\"At\":\"2026-09-19T11:00:00Z\"}"
+        ]);
+        var snapshot = await new EvolutionService(root).GetSnapshotAsync("test", false);
+        Assert.Equal(2, snapshot.RepairDecisions);
+        Assert.Equal(1, snapshot.RepairsAccepted);
+        Assert.Equal(1, snapshot.RepairsRejected);
+    }
+
     [Fact] public async Task TrainingSchedulerStaysDisabledByDefault()
     {
         var scheduler = new TrainingScheduler(new AgentService(), root);
