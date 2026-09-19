@@ -95,6 +95,17 @@ public sealed class LearningTests : IDisposable
         Assert.Equal(90, items[0].BenchmarkAfter);
     }
 
+    [Fact] public async Task EvolutionCountsRepairLifecycle()
+    {
+        var service = new SelfRepairService(root);
+        await service.RecordEventAsync(new("repair-a", "approved", DateTimeOffset.UtcNow, "ok"), default);
+        await service.RecordEventAsync(new("repair-a", "promoted", DateTimeOffset.UtcNow, "applied"), default);
+        await service.RecordEventAsync(new("repair-b", "reverted", DateTimeOffset.UtcNow, "rollback"), default);
+        var snapshot = await new EvolutionService(root).GetSnapshotAsync("test", false);
+        Assert.Equal(1, snapshot.RepairsPromoted);
+        Assert.Equal(1, snapshot.RepairsReverted);
+    }
+
     [Fact] public async Task TrainingSchedulerStaysDisabledByDefault()
     {
         var scheduler = new TrainingScheduler(new AgentService(), root);
