@@ -125,10 +125,14 @@ public sealed class AgentOrchestrator
                     var declared = final.FilesChanged.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray();
                     if (actual.Length == 0)
                     {
-                        const string scopeReason = "Nenhuma alteração comprovada pelo JobEngine.";
-                        if (!engine.RecordFailure(scopeReason)) break;
-                        Emit(ExecutionEventType.RetryStarted, "Escopo da alteração recusado", success: false, details: scopeReason);
-                        turns.Add(new("assistant", raw)); turns.Add(new("user", $"SCOPE GUARD: {scopeReason} Faça a alteração solicitada antes de finalizar.")); continue;
+                        // A non-empty git diff can predate this job. It proves the workspace is dirty,
+                        // not that this run changed anything. Do not spend retry budget here: redirect
+                        // the model back to inspection/editing and reserve attempts for real tool failures.
+                        const string scopeReason = "Esta execução ainda não aplicou nenhuma alteração. O git diff existente pode ser anterior à tarefa.";
+                        Emit(ExecutionEventType.RetryStarted, "Ainda falta editar nesta execução", success: false, details: scopeReason);
+                        turns.Add(new("assistant", raw));
+                        turns.Add(new("user", $"EXECUÇÃO INCOMPLETA: {scopeReason} Leia os arquivos alvo de site-teste e aplique uma alteração estruturada antes de tentar finalizar. Não use git_diff como prova de edição desta execução."));
+                        continue;
                     }
                     if (declared.Length == 0)
                     {
