@@ -29,8 +29,10 @@ public partial class App : Application
     {
         try
         {
-            var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "miau-tray.png");
-            if (!File.Exists(iconPath)) return;
+            var source = Path.Combine(AppContext.BaseDirectory, "Assets", "miau-logo.base64");
+            if (!File.Exists(source)) return;
+            var iconPath = Path.Combine(Path.GetTempPath(), "miau-tray-artwork.png");
+            File.WriteAllBytes(iconPath, Convert.FromBase64String(File.ReadAllText(source).Trim()));
 
             var menu = new NativeMenu();
             var open = new NativeMenuItem("Abrir MIAU");
