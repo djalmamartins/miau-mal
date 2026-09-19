@@ -66,8 +66,10 @@ public sealed class AgentOrchestrator
                     if (!editPolicy.Allow(response.Action))
                     {
                         var blocked = ToolResult.Fail(response.Action.Action, "replace_in_file bloqueado após falhas repetidas; releia o arquivo e use write_file ou apply_patch.");
-                        trace.Add(new(DateTimeOffset.Now, "tool", blocked.Tool, false, blocked.Error!)); engine.RecordFailure(blocked.Error!);
-                        turns.Add(new("assistant", raw)); turns.Add(new("user", ToolObservation(blocked))); Emit(ExecutionEventType.RetryStarted, "Mudando estratégia de edição", Target(response.Action), success: false, details: blocked.Error); continue;
+                        trace.Add(new(DateTimeOffset.Now, "policy", blocked.Tool, false, blocked.Error!));
+                        turns.Add(new("assistant", raw));
+                        turns.Add(new("user", ToolObservation(blocked) + "\nRECUPERAÇÃO OBRIGATÓRIA: não tente replace_in_file novamente. Use write_file com o conteúdo completo atual ou apply_patch."));
+                        Emit(ExecutionEventType.RetryStarted, "Mudando estratégia de edição", Target(response.Action), success: false, details: blocked.Error); continue;
                     }
                     var result = await ExecuteTool(workspace, response.Action!, requirements.ReadOnly, engine, trace, Emit, ct);
                     editPolicy.Observe(response.Action, result);
