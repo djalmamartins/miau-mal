@@ -98,10 +98,25 @@ public sealed class ToolExecutor : IToolExecutor
     }
     static string SafePath(string root, string relative)
     {
+        if (string.IsNullOrWhiteSpace(root)) throw new InvalidOperationException("Workspace obrigatório.");
         if (string.IsNullOrWhiteSpace(relative)) throw new InvalidOperationException("Caminho obrigatório.");
-        var basePath = Path.GetFullPath(root); var full = Path.GetFullPath(Path.Combine(basePath, relative));
-        var prefix = basePath.EndsWith(Path.DirectorySeparatorChar) ? basePath : basePath + Path.DirectorySeparatorChar;
-        if (full != basePath && !full.StartsWith(prefix, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)) throw new InvalidOperationException("Caminho fora do workspace.");
+
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        var basePath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
+        var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.Combine(basePath, relative)));
+
+        // The workspace root itself is valid. This explicitly covers "." and equivalent paths.
+        if (string.Equals(full, basePath, comparison)) return full;
+
+        // Relative-path containment avoids false negatives caused by trailing separators while
+        // still rejecting ../ escapes and rooted paths that resolve outside the workspace.
+        var fromWorkspace = Path.GetRelativePath(basePath, full);
+        if (Path.IsPathRooted(fromWorkspace) ||
+            fromWorkspace.Equals("..", comparison) ||
+            fromWorkspace.StartsWith(".." + Path.DirectorySeparatorChar, comparison) ||
+            fromWorkspace.StartsWith(".." + Path.AltDirectorySeparatorChar, comparison))
+            throw new InvalidOperationException("Caminho fora do workspace.");
+
         return full;
     }
     static string ListFiles(string path) => !Directory.Exists(path) ? "Diretório não encontrado." : string.Join("\n", Directory.EnumerateFileSystemEntries(path).Where(p => !Ignored(p)).Take(300).Select(p => (Directory.Exists(p) ? "[dir] " : "[file] ") + Path.GetFileName(p)));
