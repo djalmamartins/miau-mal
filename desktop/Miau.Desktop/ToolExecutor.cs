@@ -32,6 +32,7 @@ public sealed class ToolExecutor : IToolExecutor
                 ToolNames.ListFiles => ToolResult.Ok(action.Action, ListFiles(SafePath(workspace, Arg("path", "."))), ("inspected_path", Arg("path", "."))),
                 ToolNames.ReadFile => ToolResult.Ok(action.Action, await File.ReadAllTextAsync(SafePath(workspace, Arg("path")), ct), ("inspected_path", Arg("path"))),
                 ToolNames.Search => ToolResult.Ok(action.Action, Search(workspace, Arg("query")), ("inspected_path", ".")),
+                ToolNames.FetchUrl => await FetchUrl(Arg("url"), ct),
                 ToolNames.WriteFile => await Write(action.Action, SafePath(workspace, Arg("path")), Arg("content"), Arg("path"), ct),
                 ToolNames.ReplaceInFile => await Replace(action.Action, SafePath(workspace, Arg("path")), Arg("old_text"), Arg("new_text"), Arg("path"), ct),
                 ToolNames.DeleteFile => Delete(action.Action, SafePath(workspace, Arg("path")), Arg("path")),
@@ -45,6 +46,31 @@ public sealed class ToolExecutor : IToolExecutor
             };
         }
         catch (Exception ex) when (ex is not OperationCanceledException) { return ToolResult.Fail(action.Action, ex.Message); }
+    }
+
+    static async Task<ToolResult> FetchUrl(string value, CancellationToken ct)
+    {
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            return ToolResult.Fail(ToolNames.FetchUrl, "URL pública http/https inválida.");
+        if (uri.IsLoopback || uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase))
+            return ToolResult.Fail(ToolNames.FetchUrl, "Acesso web local/loopback é bloqueado.");
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(20));
+        using var client = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("MIAU1-Coder/0.1");
+        try
+        {
+            using var response = await client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+            response.EnsureSuccessStatusCode();
+            var text = await response.Content.ReadAsStringAsync(timeout.Token);
+            if (text.Length > 50000) text = text[..50000] + "\n[conteúdo web truncado]";
+            return ToolResult.Ok(ToolNames.FetchUrl, text, ("url", uri.ToString()), ("content_type", response.Content.Headers.ContentType?.MediaType ?? ""));
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return ToolResult.Fail(ToolNames.FetchUrl, "Tempo limite de 20s ao acessar a URL.");
+        }
+        catch (HttpRequestException ex) { return ToolResult.Fail(ToolNames.FetchUrl, "Falha HTTP: " + ex.Message); }
     }
 
     public async Task<ToolResult> ValidateAsync(string workspace, CancellationToken ct)
