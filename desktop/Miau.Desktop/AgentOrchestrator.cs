@@ -168,7 +168,7 @@ public sealed class AgentOrchestrator
         _ => (ExecutionEventType.ToolStarted, ExecutionEventType.ToolCompleted, ExecutionEventType.ToolFailed)
     };
     static string Description(string tool, bool success) => success ? tool switch
-    { ToolNames.ReadFile => "Leu arquivo", ToolNames.WriteFile => "Criou arquivo", ToolNames.ReplaceInFile or ToolNames.ApplyPatch => "Alterou arquivo", ToolNames.GitDiff => "Diff validado", ToolNames.FetchUrl => "Acessou referência web", ToolNames.RenderPage => "Renderizou e capturou a interface", _ => $"Executou {tool}" }
+    { ToolNames.ReadFile => "Leu arquivo", ToolNames.WriteFile => "Criou arquivo", ToolNames.ReplaceInFile or ToolNames.ApplyPatch => "Alterou arquivo", ToolNames.GitDiff => "Diff validado", ToolNames.FetchUrl => "Acessou referência web", ToolNames.RenderPage => "Renderizou e capturou a interface", ToolNames.InspectVisual => "Analisou visualmente o screenshot", _ => $"Executou {tool}" }
         : $"Falha em {tool}";
     static string? Target(MiauAction action) => action.Arguments.TryGetValue("path", out var path) ? path : action.Arguments.TryGetValue("command", out var command) ? command : action.Arguments.TryGetValue("url", out var url) ? url : action.Action;
     static string Details(ToolResult result) => result.Success ? Trim(result.Output) : result.Error ?? "Erro";
@@ -184,6 +184,8 @@ public sealed class AgentOrchestrator
             summary += "\nValidação: concluída com sucesso.";
         if (evidence.VisualValidationRan)
             summary += "\nValidação visual: página renderizada e screenshot gerado.";
+        if (evidence.VisualInspectionPassed)
+            summary += "\nInspeção visual: aprovada pelo modelo visual local.";
         return summary;
     }
 
