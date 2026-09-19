@@ -128,7 +128,7 @@
         </ScrollViewer>
        </Grid>
       </Border>
-      <Button Content="Executar diagnóstico" HorizontalAlignment="Stretch" Click="RunDiagnostics"/>
+      <Grid ColumnDefinitions="*,*" ColumnSpacing="8"><Button Content="Executar diagnóstico" HorizontalAlignment="Stretch" Click="RunDiagnostics"/><Button Grid.Column="1" Content="Executar benchmark" HorizontalAlignment="Stretch" Click="RunBenchmark"/></Grid>
      </StackPanel>
     </TabItem>
     <TabItem Header="Alterações" FontSize="13" Padding="10,6">
