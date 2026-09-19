@@ -21,7 +21,7 @@
    <Button Grid.Row="1" Margin="0,25,0,18" Height="48" Content="＋  Nova conversa" Click="NewTask"/>
    <StackPanel Grid.Row="2">
     <Button Classes="nav" Content="▣   Conversas"/><Button Classes="nav" Content="▱   Projetos" Click="OpenWorkspace"/>
-    <Button Classes="nav" Content="♙   Agentes"/><Button Classes="nav" Content="◇   Modelos"/><Button Classes="nav" Content="⌕   Ferramentas"/><Button Classes="nav" Content="⚙   Configurações"/>
+    
    </StackPanel>
    <StackPanel Grid.Row="3" Margin="6,28,0,0"><TextBlock Classes="muted" Text="PROJETO ATUAL" FontSize="11"/><TextBlock x:Name="WorkspaceText" Text="Nenhum projeto aberto" TextWrapping="Wrap" Margin="0,8,0,0"/></StackPanel>
    <StackPanel Grid.Row="4"><Separator/><TextBlock Text="DM   Djalma Martins" Margin="4,14,0,0"/></StackPanel>
@@ -41,12 +41,6 @@
     </Border>
     <TextBlock Text="Como posso ajudar?" FontSize="36" FontWeight="Bold" HorizontalAlignment="Center"/>
     <TextBlock Classes="muted" Text="Codifique. Planeje. Analise. Faça mais com o MIAU." FontSize="18" HorizontalAlignment="Center" Margin="0,10,0,0"/>
-    <Grid ColumnDefinitions="*,*,*,*" Margin="0,42,0,0">
-     <Border Classes="card" Margin="5" Padding="18" Height="126"><StackPanel><TextBlock Text="&lt;/&gt;" FontSize="22"/><TextBlock Text="Criar código" FontWeight="SemiBold" Margin="0,14,0,4"/><TextBlock Classes="muted" Text="Gere, refatore ou explique código." TextWrapping="Wrap"/></StackPanel></Border>
-     <Border Grid.Column="1" Classes="card" Margin="5" Padding="18" Height="126"><StackPanel><TextBlock Text="▤" FontSize="22"/><TextBlock Text="Analisar projeto" FontWeight="SemiBold" Margin="0,14,0,4"/><TextBlock Classes="muted" Text="Leia e entenda o seu repositório." TextWrapping="Wrap"/></StackPanel></Border>
-     <Border Grid.Column="2" Classes="card" Margin="5" Padding="18" Height="126"><StackPanel><TextBlock Text="&gt;_" FontSize="22"/><TextBlock Text="Resolver erros" FontWeight="SemiBold" Margin="0,14,0,4"/><TextBlock Classes="muted" Text="Encontre a causa e aplique a solução." TextWrapping="Wrap"/></StackPanel></Border>
-     <Border Grid.Column="3" Classes="card" Margin="5" Padding="18" Height="126"><StackPanel><TextBlock Text="◉" FontSize="22"/><TextBlock Text="Planejar" FontWeight="SemiBold" Margin="0,14,0,4"/><TextBlock Classes="muted" Text="Crie um plano de desenvolvimento." TextWrapping="Wrap"/></StackPanel></Border>
-    </Grid>
    </StackPanel>
    <ScrollViewer x:Name="Scroller" IsVisible="False"><StackPanel x:Name="Thread" Margin="46,30" Spacing="14"/></ScrollViewer>
   </Grid>
@@ -59,11 +53,9 @@
 
  <Border Grid.Column="2" Background="#111519" BorderBrush="#282E34" BorderThickness="1,0,0,0">
   <ScrollViewer><StackPanel Margin="22" Spacing="12">
-   <TextBlock Classes="muted" Text="AGENTE" FontSize="11"/><Border Classes="card" Padding="14"><TextBlock Text="●  MIAU"/></Border><TextBlock Classes="muted" Text="Seu assistente de desenvolvimento"/>
-   <TextBlock Classes="muted" Text="MODELO" FontSize="11" Margin="0,20,0,0"/><Border Classes="card" Padding="14"><TextBlock Text="qwen2.5-coder:7b     ⌄"/></Border><TextBlock Classes="muted" Text="Modelo local via Ollama"/>
-   <TextBlock Classes="muted" Text="FERRAMENTAS" FontSize="11" Margin="0,20,0,0"/><CheckBox Content="Terminal" IsChecked="True"/><CheckBox Content="Sistema de arquivos" IsChecked="True"/><CheckBox Content="Git" IsChecked="True"/><CheckBox Content="Navegação web" IsChecked="False"/><CheckBox Content="Banco de dados" IsChecked="False"/>
-   <TextBlock Classes="muted" Text="CONTEXTO" FontSize="11" Margin="0,20,0,0"/><Button Content="＋  Adicionar contexto"/><TextBlock Classes="muted" Text="Adicione arquivos ou pastas para dar mais contexto ao MIAU." TextWrapping="Wrap"/>
-   <Separator Margin="0,18,0,4"/><TextBlock Text="ALTERAÇÕES" FontWeight="SemiBold"/><TextBlock x:Name="ChangeSummary" Classes="muted" Text="Nenhuma alteração" TextWrapping="Wrap"/>
+   <TextBlock Text="EXECUÇÃO" FontWeight="SemiBold"/>
+   <TextBlock Classes="muted" Text="Agente local • qwen2.5-coder:7b" TextWrapping="Wrap"/>
+   <Separator Margin="0,12,0,4"/><TextBlock Text="ALTERAÇÕES" FontWeight="SemiBold"/><TextBlock x:Name="ChangeSummary" Classes="muted" Text="Nenhuma alteração" TextWrapping="Wrap"/>
    <TextBox x:Name="DiffBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap" Height="220" FontFamily="Menlo,Consolas,monospace" FontSize="10" Background="#0B0E11"/><Button Content="Atualizar diff" Click="RefreshDiff"/>
   </StackPanel></ScrollViewer>
  </Border>
