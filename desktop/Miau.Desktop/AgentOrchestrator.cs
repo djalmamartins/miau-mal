@@ -203,7 +203,7 @@ public sealed class AgentOrchestrator
         { engine.Cancel(); Emit(ExecutionEventType.JobCancelled, "Tarefa cancelada pelo usuário", success: false); throw; }
     }
 
-    internal static bool HasBroadVisualEvidence(JobEvidence evidence)
+    public static bool HasBroadVisualEvidence(JobEvidence evidence)
     {
         // A broad redesign needs either multiple files changed (typical HTML/CSS/JS)
         // or repeated structural work in one file. JobEvidence currently tracks unique
@@ -212,7 +212,7 @@ public sealed class AgentOrchestrator
         return evidence.FilesChanged.Count >= 2;
     }
 
-    internal static bool IsBroadVisualRewrite(string task)
+    public static bool IsBroadVisualRewrite(string task)
     {
         var t = task.ToLowerInvariant();
         var broad = new[] { "melhore significativamente", "reformul", "redesign", "reestrutur", "reconstru", "layout completo", "site completo", "landing page" };
