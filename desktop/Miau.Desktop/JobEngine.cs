@@ -1,122 +1,63 @@
 namespace Miau.Desktop;
 
-public enum JobPhase
-{
-    Understand,
-    Inspect,
-    Plan,
-    Execute,
-    Verify,
-    Test,
-    Complete,
-    Failed
-}
+public enum JobPhase { Received, Understanding, Inspecting, Planning, Executing, Verifying, Testing, Completed, Failed, Cancelled }
+
+public sealed record JobRequirements(bool RequiresChange, bool ReadOnly, bool RequiresValidation = true);
+public sealed record JobEvidence(IReadOnlyCollection<string> FilesInspected, IReadOnlyCollection<string> FilesChanged,
+    bool HasGitDiff, bool ValidationRan, bool ValidationPassed, int Attempts, string? LastError);
 
 public sealed class JobEngine
 {
-    public JobPhase Phase { get; private set; } = JobPhase.Understand;
-    public bool RequiresChange { get; }
-    public bool ReadOnly { get; }
-    public bool Inspected { get; private set; }
-    public bool Changed { get; private set; }
-    public bool Verified { get; private set; }
-    public bool Tested { get; private set; }
-    public bool ToolFailed { get; private set; }
+    readonly HashSet<string> inspected = new(StringComparer.OrdinalIgnoreCase);
+    readonly HashSet<string> changed = new(StringComparer.OrdinalIgnoreCase);
+    public JobEngine(JobRequirements requirements, int maxAttempts = 4) { Requirements = requirements; MaxAttempts = Math.Max(1, maxAttempts); }
+    public JobRequirements Requirements { get; }
+    public int MaxAttempts { get; }
+    public int Attempts { get; private set; }
+    public JobPhase Phase { get; private set; } = JobPhase.Received;
+    public bool HasGitDiff { get; private set; }
+    public bool ValidationRan { get; private set; }
+    public bool ValidationPassed { get; private set; }
+    public string? LastError { get; private set; }
+    public bool IsTerminal => Phase is JobPhase.Completed or JobPhase.Failed or JobPhase.Cancelled;
+    public event Action<JobPhase, string>? StateChanged;
+    public JobEvidence Evidence => new(inspected.ToArray(), changed.ToArray(), HasGitDiff, ValidationRan, ValidationPassed, Attempts, LastError);
 
-    public JobEngine(bool requiresChange, bool readOnly)
+    public void Start() => Transition(JobPhase.Understanding, "Entendendo a tarefa");
+    public void BeginInspection() => Transition(JobPhase.Inspecting, "Inspecionando o projeto");
+    public void BeginPlanning() => Transition(JobPhase.Planning, "Planejando a execução");
+    public void Observe(ToolResult result)
     {
-        RequiresChange = requiresChange && !readOnly;
-        ReadOnly = readOnly;
+        if (!result.Success) { LastError = result.Error ?? "Ferramenta retornou erro."; return; }
+        if (result.Metadata.TryGetValue("inspected_path", out var inspectedPath) && !string.IsNullOrWhiteSpace(inspectedPath)) inspected.Add(inspectedPath);
+        if (result.Metadata.TryGetValue("changed_path", out var changedPath) && !string.IsNullOrWhiteSpace(changedPath))
+        { changed.Add(changedPath); Transition(JobPhase.Executing, "Editando arquivos"); }
+        if (result.Tool == ToolNames.GitDiff)
+        { HasGitDiff = result.Metadata.TryGetValue("has_changes", out var value) && value == "true"; Transition(JobPhase.Verifying, "Verificando alterações"); }
+        if (result.Metadata.TryGetValue("validation", out var validation) && validation == "true")
+        { ValidationRan = true; ValidationPassed = true; Transition(JobPhase.Testing, "Testando o projeto"); }
+        LastError = null;
     }
-
-    public void Begin(Action<string> progress)
+    public bool RecordFailure(string error)
     {
-        Set(JobPhase.Understand, progress, "Entendendo a tarefa");
-        Set(JobPhase.Inspect, progress, "Inspecionando o projeto");
+        LastError = error; Attempts++;
+        if (Attempts < MaxAttempts) return true;
+        Fail($"Limite de {MaxAttempts} tentativas atingido: {error}"); return false;
     }
-
-    public void ObserveTool(string name, bool success, Action<string> progress)
+    public bool TryComplete(out string reason)
     {
-        if (!success)
+        if (Requirements.ReadOnly)
+        { if (inspected.Count == 0) { reason = "A tarefa somente leitura terminou sem inspeção comprovada."; return false; } }
+        else if (Requirements.RequiresChange)
         {
-            ToolFailed = true;
-            progress("⚠ Ferramenta retornou erro; o modelo receberá o erro para corrigir.");
-            return;
+            if (inspected.Count == 0) { reason = "Nenhum arquivo relevante foi inspecionado."; return false; }
+            if (changed.Count == 0) { reason = "A tarefa exige alteração, mas nenhuma edição foi aplicada."; return false; }
+            if (!HasGitDiff) { reason = "A edição não foi comprovada por um git diff não vazio."; return false; }
+            if (Requirements.RequiresValidation && (!ValidationRan || !ValidationPassed)) { reason = "A alteração ainda não passou por build ou teste apropriado."; return false; }
         }
-
-        if (name is "list_files" or "read_file" or "search" or "git_status")
-        {
-            Inspected = true;
-            if (Phase <= JobPhase.Inspect)
-                Set(JobPhase.Plan, progress, "Inspeção comprovada; preparando a execução");
-        }
-
-        if (name is "write_file" or "replace_in_file")
-        {
-            Changed = true;
-            Set(JobPhase.Execute, progress, "Alteração aplicada no workspace");
-        }
-
-        if (name == "git_diff")
-        {
-            Verified = true;
-            Set(JobPhase.Verify, progress, "Alteração verificada pelo Git");
-        }
-
-        if (name == "run_command")
-        {
-            Tested = true;
-            Set(JobPhase.Test, progress, "Comando de validação executado");
-        }
+        reason = ""; Transition(JobPhase.Completed, "Concluído"); return true;
     }
-
-    public bool CanFinish(out string reason)
-    {
-        if (ReadOnly)
-        {
-            reason = "";
-            return true;
-        }
-
-        if (!RequiresChange)
-        {
-            reason = "";
-            return true;
-        }
-
-        if (!Changed)
-        {
-            reason = "A tarefa exige alteração, mas nenhuma ferramenta de edição foi executada com sucesso.";
-            return false;
-        }
-
-        if (!Verified)
-        {
-            reason = "A alteração existe, mas ainda não foi verificada com git_diff.";
-            return false;
-        }
-
-        reason = "";
-        return true;
-    }
-
-    public string NextInstruction()
-    {
-        if (!Inspected)
-            return "Inspecione o projeto agora usando list_files, search ou read_file. Não descreva a ação: execute a ferramenta.";
-        if (RequiresChange && !Changed)
-            return "A inspeção terminou. Aplique agora a alteração solicitada usando replace_in_file ou write_file. Não responda antes de editar de verdade.";
-        if (RequiresChange && !Verified)
-            return "A alteração foi aplicada. Execute git_diff agora para verificar exatamente o que mudou antes de concluir.";
-        return "Finalize com um resumo objetivo do que foi realmente executado e informe validações/testes que de fato ocorreram.";
-    }
-
-    public void Complete(Action<string> progress) => Set(JobPhase.Complete, progress, "Tarefa validada pelo motor");
-    public void Fail(Action<string> progress, string reason) => Set(JobPhase.Failed, progress, reason);
-
-    void Set(JobPhase phase, Action<string> progress, string description)
-    {
-        Phase = phase;
-        progress($"◆ {phase}: {description}");
-    }
+    public void Fail(string reason) { LastError = reason; Transition(JobPhase.Failed, reason); }
+    public void Cancel() => Transition(JobPhase.Cancelled, "Cancelado");
+    void Transition(JobPhase phase, string description) { if (IsTerminal) return; Phase = phase; StateChanged?.Invoke(phase, description); }
 }
