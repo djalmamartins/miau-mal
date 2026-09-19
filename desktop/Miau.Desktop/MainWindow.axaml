@@ -55,6 +55,12 @@
   <ScrollViewer><StackPanel Margin="22" Spacing="12">
    <TextBlock Text="EXECUÇÃO" FontWeight="SemiBold"/>
    <TextBlock Classes="muted" Text="Agente local • qwen2.5-coder:7b" TextWrapping="Wrap"/>
+   <TextBlock x:Name="AgentIdText" Classes="muted" FontSize="11" TextWrapping="Wrap"/>
+   <Grid ColumnDefinitions="*,Auto" Margin="0,4,0,0">
+    <ToggleSwitch x:Name="AutonomousToggle" Content="Modo autônomo" Checked="AutonomousChanged" Unchecked="AutonomousChanged"/>
+    <CheckBox Grid.Column="1" x:Name="StopAfterTaskCheck" Content="Parar após tarefa" VerticalAlignment="Center" IsVisible="False"/>
+   </Grid>
+   <TextBlock x:Name="CurrentJobText" Classes="muted" Text="Aguardando trabalho" TextWrapping="Wrap"/>
    <Border Background="#0B0E11" BorderBrush="#282E34" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,4,0,4">
     <ScrollViewer Height="260" VerticalScrollBarVisibility="Auto">
      <StackPanel x:Name="ActivityFeed" Spacing="7">
