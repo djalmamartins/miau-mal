@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace Miau.Desktop;
 
-public sealed record TrainingSchedule(bool Enabled = false, int IntervalHours = 6, int MaxTasksPerCycle = 3);
+public sealed record TrainingSchedule(bool Enabled = false, int IntervalHours = 24, int MaxTasksPerCycle = 3);
 public sealed record TrainingCycleResult(DateTimeOffset StartedAt, int Attempted, int Completed, int Failed, int Rejected = 0);
 
 public sealed class TrainingScheduler
