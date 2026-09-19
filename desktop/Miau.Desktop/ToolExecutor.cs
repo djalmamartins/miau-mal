@@ -61,10 +61,32 @@ public sealed class ToolExecutor : IToolExecutor
     { Directory.CreateDirectory(Path.GetDirectoryName(path)!); await File.WriteAllTextAsync(path, content, ct); return ToolResult.Ok(tool, $"Arquivo salvo: {relative}", ("changed_path", relative)); }
     static async Task<ToolResult> Replace(string tool, string path, string oldText, string newText, string relative, CancellationToken ct)
     {
-        var current = await File.ReadAllTextAsync(path, ct); var first = current.IndexOf(oldText, StringComparison.Ordinal);
-        if (first < 0 || current.IndexOf(oldText, first + oldText.Length, StringComparison.Ordinal) >= 0) throw new InvalidOperationException("Edição recusada: old_text deve corresponder exatamente uma vez.");
+        if (string.IsNullOrEmpty(oldText))
+            throw new InvalidOperationException("Edição recusada: old_text não pode ser vazio.");
+
+        var current = await File.ReadAllTextAsync(path, ct);
+        var matches = CountOccurrences(current, oldText);
+
+        if (matches == 0)
+            throw new InvalidOperationException("Edição recusada: old_text não foi encontrado. Leia novamente o arquivo antes de editar ou use write_file para substituir o arquivo completo.");
+        if (matches > 1)
+            throw new InvalidOperationException($"Edição recusada: old_text corresponde a {matches} trechos. Envie um trecho maior e único, ou use write_file para substituir o arquivo completo.");
+
+        var first = current.IndexOf(oldText, StringComparison.Ordinal);
         await File.WriteAllTextAsync(path, current[..first] + newText + current[(first + oldText.Length)..], ct);
         return ToolResult.Ok(tool, $"Trecho alterado: {relative}", ("changed_path", relative));
+    }
+
+    static int CountOccurrences(string text, string value)
+    {
+        var count = 0;
+        var start = 0;
+        while ((start = text.IndexOf(value, start, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            start += value.Length;
+        }
+        return count;
     }
     static async Task<ToolResult> ApplyPatch(string tool, string workspace, string patch, CancellationToken ct)
     {
