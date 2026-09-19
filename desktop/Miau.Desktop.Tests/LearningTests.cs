@@ -40,4 +40,20 @@ public sealed class LearningTests : IDisposable
     [Fact] public void GitStatusParserReturnsOnlyChangedPaths()
     { Assert.Equal(["src/a.cs", "new.txt"], GitHubJobService.ParseChangedFiles(" M src/a.cs\0?? new.txt\0").ToArray()); }
     public void Dispose() { if (Directory.Exists(root)) Directory.Delete(root, true); }
+
+    [Fact] public void SelfRepairRejectsRegression()
+    {
+        Assert.True(SelfRepairService.Accept(70, 70, true, true));
+        Assert.True(SelfRepairService.Accept(70, 80, true, true));
+        Assert.False(SelfRepairService.Accept(80, 70, true, true));
+        Assert.False(SelfRepairService.Accept(70, 90, false, true));
+        Assert.False(SelfRepairService.Accept(70, 90, true, false));
+    }
+
+    [Fact] public async Task TrainingSchedulerStaysDisabledByDefault()
+    {
+        var scheduler = new TrainingScheduler(new AgentService(), root);
+        var result = await scheduler.RunCycleAsync(root, new TrainingSchedule(), default);
+        Assert.Equal(0, result.Attempted);
+    }
 }
