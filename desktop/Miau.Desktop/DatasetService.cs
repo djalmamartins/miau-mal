@@ -28,6 +28,7 @@ public interface IDatasetService { Task SaveCompletedAsync(string workspace, Tra
 
 public sealed class DatasetService : IDatasetService
 {
+    public const double CompletedQualityThreshold = 70;
     static readonly Regex AssignmentSecret = new(@"(?i)\b(api[_-]?key|token|password|secret|authorization)\b\s*[:=]\s*[^\s,;""']+", RegexOptions.Compiled);
     static readonly Regex Authorization = new(@"(?im)^\s*authorization\s*:\s*.+$", RegexOptions.Compiled);
     static readonly Regex PrivateKey = new(@"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----", RegexOptions.Compiled);
@@ -45,8 +46,9 @@ public sealed class DatasetService : IDatasetService
             BuildResult = Redact(record.BuildResult ?? ""), TestsResult = Redact(record.TestsResult ?? ""), Errors = record.Errors.Select(Redact).ToArray(),
             QualityScore = quality.Score, QualityReasons = quality.Reasons
         };
-        var completed = Path.Combine(directory, "completed"); Directory.CreateDirectory(completed);
-        await File.AppendAllTextAsync(Path.Combine(completed, "miau1-coder-v0.jsonl"), JsonSerializer.Serialize(safe) + Environment.NewLine, ct);
+        var bucketName = safe.Success && safe.QualityScore >= CompletedQualityThreshold ? "completed" : "review";
+        var bucket = Path.Combine(directory, bucketName); Directory.CreateDirectory(bucket);
+        await File.AppendAllTextAsync(Path.Combine(bucket, "miau1-coder-v0.jsonl"), JsonSerializer.Serialize(safe) + Environment.NewLine, ct);
     }
     static TaskTraceEvent[] Sanitize(IEnumerable<TaskTraceEvent> events) => events.Select(x => x with { Detail = Redact(Summarize(x.Detail)) }).ToArray();
     static string Summarize(string value) => value.Length <= 4000 ? value : value[..4000] + "\n[truncated]";

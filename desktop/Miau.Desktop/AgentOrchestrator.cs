@@ -6,14 +6,15 @@ public sealed record AgentRunResult(string Summary, JobPhase Phase, JobEvidence 
 
 public sealed class AgentOrchestrator
 {
-    readonly IModelAdapter model; readonly IToolExecutor tools; readonly IDatasetService dataset; readonly IPromptProvider prompts; readonly EditPolicy editPolicy; readonly FailureLearningService failures; readonly int maxSteps;
+    readonly IModelAdapter model; readonly IToolExecutor tools; readonly IDatasetService dataset; readonly IPromptProvider prompts; readonly EditPolicy editPolicy; readonly FailureLearningService failures; readonly ExperienceHarvester harvester; readonly int maxSteps;
     public AgentOrchestrator(IModelAdapter model, IToolExecutor tools, IDatasetService dataset, int maxSteps = 40, IPromptProvider? prompts = null)
-    { this.model = model; this.tools = tools; this.dataset = dataset; this.maxSteps = maxSteps; this.prompts = prompts ?? new VersionedPromptProvider(); editPolicy = new(); failures = new(); }
+    { this.model = model; this.tools = tools; this.dataset = dataset; this.maxSteps = maxSteps; this.prompts = prompts ?? new VersionedPromptProvider(); editPolicy = new(); failures = new(); harvester = new(); }
 
     public async Task<AgentRunResult> RunAsync(string workspace, string task, JobRequirements requirements, CancellationToken ct,
         Action<JobPhase, string>? progress = null, Action<ExecutionEvent>? eventSink = null)
     {
         var engine = new JobEngine(requirements); var trace = new List<TaskTraceEvent>(); var plan = new List<string>(); var replaceFailures = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase); var turns = new List<ModelTurn> { new("user", task) }; var jobWatch = Stopwatch.StartNew();
+        (MiauAction Action, ToolResult Result)? pendingRecovery = null;
         void Emit(ExecutionEventType type, string description, string? target = null, TimeSpan? duration = null, bool? success = null, IReadOnlyDictionary<string, string>? metadata = null, string? details = null)
             => eventSink?.Invoke(new(DateTimeOffset.Now, type, engine.Phase, description, target, duration, success, metadata, details));
         engine.StateChanged += (phase, description) => { progress?.Invoke(phase, description); Emit(ExecutionEventType.PhaseChanged, description, phase.ToString(), success: true); };
@@ -58,7 +59,16 @@ public sealed class AgentOrchestrator
                     }
                     var result = await ExecuteTool(workspace, response.Action!, requirements.ReadOnly, engine, trace, Emit, ct);
                     editPolicy.Observe(response.Action, result);
-                    if (!result.Success) await failures.RecordAsync(workspace, response.Action, result, null, false, ct);
+                    if (!result.Success)
+                    {
+                        await failures.RecordAsync(workspace, response.Action, result, null, false, ct);
+                        pendingRecovery = (response.Action, result);
+                    }
+                    else if (pendingRecovery is { } recovery)
+                    {
+                        await failures.RecordAsync(workspace, recovery.Action, recovery.Result, response.Action.Action, true, ct);
+                        pendingRecovery = null;
+                    }
                     turns.Add(new("assistant", raw)); turns.Add(new("user", ToolObservation(result)));
                     if (!result.Success)
                     {
@@ -113,15 +123,10 @@ public sealed class AgentOrchestrator
                     Emit(ExecutionEventType.RetryStarted, "Conclusão recusada pelo JobEngine", success: false, details: reason);
                     turns.Add(new("assistant", raw)); turns.Add(new("user", $"FINAL RECUSADO PELO JOB ENGINE: {reason} Emita a action estruturada necessária.")); continue;
                 }
-                var evidence = engine.Evidence; var actions = trace.Where(x => x.Kind == "action_requested").ToArray(); var results = trace.Where(x => x.Kind == "tool").ToArray();
+                var evidence = engine.Evidence;
                 var provenFiles = evidence.FilesChanged.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray();
                 var finalSummary = BuildVerifiedSummary(final.Summary, provenFiles, evidence);
-                var record = new TrainingRecord(Guid.NewGuid().ToString("N"), DateTimeOffset.Now, Miau1Coder.AgentVersion, model.ModelId, DatasetService.Fingerprint(workspace),
-                    task, plan, actions, results, evidence.FilesInspected, evidence.FilesChanged,
-                    actions.Where(x => x.Name is ToolNames.ApplyPatch or ToolNames.ReplaceInFile or ToolNames.WriteFile).Select(x => x.Detail).ToArray(),
-                    results.LastOrDefault(x => x.Name == ToolNames.Build)?.Detail, results.LastOrDefault(x => x.Name == ToolNames.Test)?.Detail,
-                    trace.Where(x => !x.Success).Select(x => x.Detail).ToArray(), evidence.Attempts, finalSummary) { Duration = jobWatch.Elapsed, Success = true,
-                    RecoveryStrategy = evidence.Attempts > 0 ? "reinspeção e mudança de ação após falha" : null };
+                var record = harvester.Harvest(workspace, model.ModelId, task, plan, trace, evidence, finalSummary, jobWatch.Elapsed);
                 await dataset.SaveCompletedAsync(workspace, record, ct);
                 Emit(ExecutionEventType.JobCompleted, "Tarefa concluída", duration: null, success: true, metadata: new Dictionary<string, string> { ["files_changed"] = evidence.FilesChanged.Count.ToString() });
                 return new(finalSummary, engine.Phase, evidence);
