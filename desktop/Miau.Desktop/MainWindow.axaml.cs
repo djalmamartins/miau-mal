@@ -20,6 +20,10 @@ public partial class MainWindow : Window
     readonly ConversationService conversations = new();
     readonly DiagnosticsService diagnostics = new();
     readonly EvolutionService evolution = new();
+    readonly SelfRepairService selfRepair = new();
+    TrainingScheduler? training;
+    CancellationTokenSource? trainingCts;
+    readonly DispatcherTimer trainingTimer = new();
     EvolutionDashboardService? evolutionDashboard;
     CancellationTokenSource? cts;
     CancellationTokenSource? runnerCts;
@@ -41,6 +45,10 @@ public partial class MainWindow : Window
         runner.StatusChanged += s => Dispatcher.UIThread.Post(() => { CurrentJobText.Text = s; Activity(s); });
         executionTimer.Tick += (_, _) => UpdateExecutionHeartbeat();
         SetExecutionState("idle");
+        training = new TrainingScheduler(agent);
+        TrainingToggle.IsChecked = state.TrainingEnabled;
+        SelfRepairToggle.IsChecked = state.SelfRepairEnabled;
+        ConfigureTrainingTimer();
         RestoreWorkspace();
     }
 
@@ -76,6 +84,63 @@ public partial class MainWindow : Window
         {
             StatusText.Text = "Logo não carregada: " + ex.Message;
         }
+    }
+
+    void ConfigureTrainingTimer()
+    {
+        trainingTimer.Stop();
+        trainingTimer.Interval = TimeSpan.FromHours(Math.Clamp(state.TrainingIntervalHours, 1, 168));
+        trainingTimer.Tick -= TrainingTimerTick;
+        trainingTimer.Tick += TrainingTimerTick;
+        TrainingStatusText.Text = state.TrainingEnabled ? $"A cada {state.TrainingIntervalHours}h" : "Desativado";
+        if (state.TrainingEnabled) trainingTimer.Start();
+    }
+
+    async void TrainingTimerTick(object? sender, EventArgs e)
+    {
+        if (trainingCts is not null || string.IsNullOrWhiteSpace(workspace)) return;
+        await RunTrainingCycleCore();
+    }
+
+    void TrainingChanged(object? sender, RoutedEventArgs e)
+    {
+        state.TrainingEnabled = TrainingToggle.IsChecked == true;
+        state.Save();
+        ConfigureTrainingTimer();
+        Activity(state.TrainingEnabled ? "Treino controlado agendado." : "Treino controlado desativado.");
+    }
+
+    void SelfRepairChanged(object? sender, RoutedEventArgs e)
+    {
+        state.SelfRepairEnabled = SelfRepairToggle.IsChecked == true;
+        state.Save();
+        Activity(state.SelfRepairEnabled ? "Detecção de auto-reparo ativada." : "Auto-reparo desativado.");
+    }
+
+    async void RunTrainingCycle(object? sender, RoutedEventArgs e) => await RunTrainingCycleCore(force: true);
+
+    async Task RunTrainingCycleCore(bool force = false)
+    {
+        if (training is null || trainingCts is not null) return;
+        if (!force && !state.TrainingEnabled) return;
+        trainingCts = new();
+        TrainingStatusText.Text = "Executando…";
+        try
+        {
+            var schedule = new TrainingSchedule(true, state.TrainingIntervalHours, state.TrainingMaxTasksPerCycle);
+            var result = await training.RunCycleAsync(workspace ?? Environment.CurrentDirectory, schedule, trainingCts.Token,
+                x => Dispatcher.UIThread.Post(() => Activity(x)));
+            Activity($"Ciclo de treino: {result.Completed}/{result.Attempted} concluídos; {result.Failed} falhas.");
+            if (state.SelfRepairEnabled)
+            {
+                var candidates = await selfRepair.DetectAsync(trainingCts.Token);
+                Activity(candidates.Count == 0 ? "Auto-reparo: nenhuma falha recorrente elegível." : $"Auto-reparo: {candidates.Count} candidato(s) aguardando execução segura.");
+                foreach (var item in candidates.Take(5)) Activity($"RepairJob {item.Id}: {item.Reason} · evidências {item.EvidenceCount}");
+            }
+        }
+        catch (OperationCanceledException) { Activity("Ciclo de treino cancelado."); }
+        catch (Exception ex) { Activity("Falha no ciclo de treino: " + DatasetService.Redact(ex.Message)); }
+        finally { trainingCts?.Dispose(); trainingCts = null; ConfigureTrainingTimer(); }
     }
 
     async void OpenWorkspace(object? s, RoutedEventArgs e)
@@ -419,6 +484,8 @@ public partial class MainWindow : Window
     {
         runnerCts?.Cancel();
         cts?.Cancel();
+        trainingCts?.Cancel();
+        trainingTimer.Stop();
         if (evolutionDashboard is not null) _ = evolutionDashboard.DisposeAsync();
         base.OnClosed(e);
     }
