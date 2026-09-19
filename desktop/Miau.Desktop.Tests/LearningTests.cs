@@ -28,6 +28,15 @@ public sealed class LearningTests : IDisposable
         Assert.False(policy.Allow(action)); Assert.Equal(EditMethod.Write, policy.Choose("a.cs", true, true, 1, 1, false).Method);
     }
     [Fact] public void EditStrategySelectsPatchForMultipleFiles() => Assert.Equal(EditMethod.Patch, new EditPolicy().Choose("a.cs", true, true, 2, 2, false).Method);
+    [Fact] public async Task DeleteFileRemovesOnlyWorkspaceFile()
+    {
+        var file = Path.Combine(root, "obsolete.txt"); await File.WriteAllTextAsync(file, "old");
+        var action = new MiauAction(ToolNames.DeleteFile, new() { ["path"] = "obsolete.txt" }, null);
+        var result = await new ToolExecutor().ExecuteAsync(root, action, false, default);
+        Assert.True(result.Success); Assert.False(File.Exists(file)); Assert.Equal("obsolete.txt", result.Metadata["changed_path"]);
+        var escape = new MiauAction(ToolNames.DeleteFile, new() { ["path"] = "../outside.txt" }, null);
+        Assert.False((await new ToolExecutor().ExecuteAsync(root, escape, false, default)).Success);
+    }
     [Fact] public void GitStatusParserReturnsOnlyChangedPaths()
     { Assert.Equal(["src/a.cs", "new.txt"], GitHubJobService.ParseChangedFiles(" M src/a.cs\0?? new.txt\0").ToArray()); }
     public void Dispose() { if (Directory.Exists(root)) Directory.Delete(root, true); }
