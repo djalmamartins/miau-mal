@@ -21,6 +21,10 @@ public partial class MainWindow : Window
     CancellationTokenSource? runnerCts;
     string? workspace;
     readonly List<string> attachments = [];
+    readonly DispatcherTimer executionTimer = new() { Interval = TimeSpan.FromMilliseconds(550) };
+    DateTimeOffset executionStarted;
+    DateTimeOffset lastExecutionPulse;
+    bool executionBlink;
 
     public MainWindow()
     {
@@ -30,6 +34,8 @@ public partial class MainWindow : Window
         StatusText.Text = $"● {state.Model} (local)";
         AgentIdText.Text = state.AgentId;
         runner.StatusChanged += s => Dispatcher.UIThread.Post(() => { CurrentJobText.Text = s; Activity(s); });
+        executionTimer.Tick += (_, _) => UpdateExecutionHeartbeat();
+        SetExecutionState("idle");
         RestoreWorkspace();
     }
 
@@ -208,6 +214,68 @@ public partial class MainWindow : Window
         }
     }
 
+    void SetExecutionState(string stateName)
+    {
+        switch (stateName)
+        {
+            case "running":
+                executionStarted = DateTimeOffset.Now;
+                lastExecutionPulse = executionStarted;
+                executionBlink = true;
+                ExecutionStateText.Text = "Em execução";
+                ExecutionStateText.Foreground = new SolidColorBrush(Color.Parse("#55D978"));
+                ExecutionDot.Fill = new SolidColorBrush(Color.Parse("#55D978"));
+                executionTimer.Start();
+                break;
+            case "failed":
+                executionTimer.Stop();
+                ExecutionStateText.Text = "Travado / erro";
+                ExecutionStateText.Foreground = new SolidColorBrush(Color.Parse("#FF5B57"));
+                ExecutionDot.Fill = new SolidColorBrush(Color.Parse("#FF5B57"));
+                ExecutionDot.Opacity = 1;
+                break;
+            case "done":
+                executionTimer.Stop();
+                ExecutionStateText.Text = "Concluído";
+                ExecutionStateText.Foreground = new SolidColorBrush(Color.Parse("#55D978"));
+                ExecutionDot.Fill = new SolidColorBrush(Color.Parse("#55D978"));
+                ExecutionDot.Opacity = 1;
+                break;
+            default:
+                executionTimer.Stop();
+                ExecutionStateText.Text = "Aguardando";
+                ExecutionStateText.Foreground = new SolidColorBrush(Color.Parse("#969DA5"));
+                ExecutionDot.Fill = new SolidColorBrush(Color.Parse("#7D858D"));
+                ExecutionDot.Opacity = 1;
+                ExecutionElapsedText.Text = "";
+                break;
+        }
+    }
+
+    void PulseExecution()
+    {
+        lastExecutionPulse = DateTimeOffset.Now;
+        if (!executionTimer.IsEnabled) SetExecutionState("running");
+    }
+
+    void UpdateExecutionHeartbeat()
+    {
+        var now = DateTimeOffset.Now;
+        ExecutionElapsedText.Text = (now - executionStarted).ToString(@"mm\:ss");
+        executionBlink = !executionBlink;
+        ExecutionDot.Opacity = executionBlink ? 1 : .28;
+
+        // A red indicator is reserved for a real lack of progress, not a cosmetic pause.
+        if (now - lastExecutionPulse > TimeSpan.FromMinutes(2))
+        {
+            executionTimer.Stop();
+            ExecutionStateText.Text = "Sem resposta";
+            ExecutionStateText.Foreground = new SolidColorBrush(Color.Parse("#FF5B57"));
+            ExecutionDot.Fill = new SolidColorBrush(Color.Parse("#FF5B57"));
+            ExecutionDot.Opacity = 1;
+        }
+    }
+
     void Activity(string text)
     {
         var line = new TextBlock
@@ -244,6 +312,7 @@ public partial class MainWindow : Window
         SendButton.IsVisible = false;
         StopButton.IsVisible = true;
         StatusText.Text = "MIAU trabalhando…";
+        SetExecutionState("running");
         Activity($"Iniciando tarefa: {prompt}");
         cts = new();
 
@@ -256,6 +325,7 @@ public partial class MainWindow : Window
             var result = await agent.RunAsync(workspace, effectivePrompt, cts.Token,
                 ev => Dispatcher.UIThread.Post(() =>
                 {
+                    PulseExecution();
                     activity.Text = ev;
                     Activity(ev);
                 }));
@@ -264,10 +334,11 @@ public partial class MainWindow : Window
             await conversations.AppendAsync("MIAU", result, workspace);
             await memory.RememberAsync(workspace, prompt, result, cts.Token);
             Activity("Tarefa concluída e registrada na memória local.");
+            SetExecutionState("done");
             await RefreshChanges();
         }
-        catch (OperationCanceledException) { activity.Text = "Tarefa interrompida."; Activity("Tarefa interrompida."); }
-        catch (Exception ex) { activity.Text = "Erro: " + ex.Message; Activity("ERRO: " + ex.Message); }
+        catch (OperationCanceledException) { activity.Text = "Tarefa interrompida."; Activity("Tarefa interrompida."); SetExecutionState("idle"); }
+        catch (Exception ex) { activity.Text = "Erro: " + ex.Message; Activity("ERRO: " + ex.Message); SetExecutionState("failed"); }
         finally
         {
             SendButton.IsVisible = true;
