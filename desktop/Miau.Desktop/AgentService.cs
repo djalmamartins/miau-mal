@@ -48,15 +48,9 @@ public sealed class AgentService
                 }
             }
 
-            foreach (var name in new[] { "README.md", "README" })
-            {
-                var direct = Path.Combine(root, name);
-                if (File.Exists(direct)) candidates.Add(direct);
-            }
-
-            candidates.AddRange(Directory.EnumerateFiles(root, "*.sln*", SearchOption.TopDirectoryOnly).Where(p => !Ignored(p)).Take(2));
-            candidates.AddRange(Directory.EnumerateFiles(root, "*.csproj", SearchOption.AllDirectories)
-                .Where(p => !Ignored(p) && !p.StartsWith(desktopRoot, StringComparison.OrdinalIgnoreCase)).Take(2));
+            // For current-state analysis, do not preload legacy root README/roadmap or unrelated
+            // projects. They can be fetched later if the model explicitly needs historical context.
+            // The automatic snapshot must describe the application that is actually running now.
 
             messages.Add(new("user", "REGRA DE EVIDÊNCIA: determine o estado ATUAL principalmente pelo código existente na branch ativa. Documentos de roadmap/arquitetura podem estar históricos ou desatualizados. Se documentação e implementação divergirem, diga isso explicitamente e priorize o que o código atual comprova. Não afirme que testes foram executados apenas porque git_status/git_diff foram usados."));
             // Put the evidence rule after the inspected files too. Small local models overweight older/root
@@ -76,7 +70,7 @@ public sealed class AgentService
             }
 
             var inspectedNames = string.Join(", ", selectedAnalysisFiles.Select(p => Path.GetRelativePath(root, p)));
-            messages.Add(new("user", $"INSTRUÇÃO FINAL DA PRÉ-INSPEÇÃO: arquivos realmente lidos: {inspectedNames}. Antes de responder, reconcilie esses arquivos. O aplicativo desktop atual em desktop/Miau.Desktop é Avalonia/.NET 10 e o código lido é evidência do estado presente. Não proponha WinUI 3, llama.cpp/GGUF ou reconstrução da CLI como próximos passos só porque aparecem em documentação histórica, a menos que o código atual também demonstre que continuam sendo o plano ativo. Descreva primeiro o que já existe e funciona no desktop atual."));
+            messages.Add(new("user", $"SNAPSHOT ATUAL DO MIAU DESKTOP: arquivos realmente lidos: {inspectedNames}. Esta é a base primária para responder sobre o estado atual. O aplicativo em execução é desktop/Miau.Desktop, Avalonia/.NET 10. Descreva o que este código comprova que já existe e derive os próximos passos das lacunas deste código. Não use planos históricos de WinUI 3, llama.cpp/GGUF ou reconstrução da CLI como próximos passos do desktop atual. Se precisar discutir documentação histórica, identifique-a explicitamente como histórica."));
         }
 
         for (var step = 0; step < 30; step++)
