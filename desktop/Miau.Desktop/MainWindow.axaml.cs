@@ -317,7 +317,7 @@ public partial class MainWindow : Window
             ExecutionEventType.ModelRequestCompleted or ExecutionEventType.ToolCompleted or ExecutionEventType.ToolFailed or ExecutionEventType.CommandCompleted or ExecutionEventType.CommandFailed or ExecutionEventType.DiffCompleted or ExecutionEventType.BuildCompleted or ExecutionEventType.BuildFailed or ExecutionEventType.TestsCompleted or ExecutionEventType.TestsFailed => null,
             _ => activeExecution
         };
-        ExecutionStateText.Text = ev.Type == ExecutionEventType.ModelRequestStarted ? "Modelo processando" : ev.Type.ToString();
+        ExecutionStateText.Text = EventStateLabel(ev.Type);
         UpdatePhaseChecklist(ev.Phase);
         var symbol = ev.Success switch { true => "✓", false => "✕", _ => "›" };
         var elapsed = ev.Duration is { } d ? $" · {d.TotalSeconds:0.0}s" : "";
@@ -333,6 +333,36 @@ public partial class MainWindow : Window
         while (ActivityFeed.Children.Count > 120) ActivityFeed.Children.RemoveAt(0);
         Dispatcher.UIThread.Post(() => ActivityScroller.ScrollToEnd(), DispatcherPriority.Background);
     }
+
+    static string EventStateLabel(ExecutionEventType type) => type switch
+    {
+        ExecutionEventType.JobStarted => "Iniciando",
+        ExecutionEventType.PhaseChanged => "Em execução",
+        ExecutionEventType.ModelRequestStarted => "Modelo processando",
+        ExecutionEventType.ModelRequestCompleted => "Modelo respondeu",
+        ExecutionEventType.ToolStarted => "Executando ferramenta",
+        ExecutionEventType.ToolCompleted => "Ferramenta concluída",
+        ExecutionEventType.ToolFailed => "Falha na ferramenta",
+        ExecutionEventType.FileRead => "Arquivo lido",
+        ExecutionEventType.FileCreated => "Arquivo criado",
+        ExecutionEventType.FileChanged => "Arquivo alterado",
+        ExecutionEventType.CommandStarted => "Executando comando",
+        ExecutionEventType.CommandCompleted => "Comando concluído",
+        ExecutionEventType.CommandFailed => "Falha no comando",
+        ExecutionEventType.DiffStarted => "Verificando alterações",
+        ExecutionEventType.DiffCompleted => "Alterações verificadas",
+        ExecutionEventType.BuildStarted => "Validando projeto",
+        ExecutionEventType.BuildCompleted => "Validação concluída",
+        ExecutionEventType.BuildFailed => "Falha na validação",
+        ExecutionEventType.TestsStarted => "Executando testes",
+        ExecutionEventType.TestsCompleted => "Testes concluídos",
+        ExecutionEventType.TestsFailed => "Falha nos testes",
+        ExecutionEventType.RetryStarted => "Tentando novamente",
+        ExecutionEventType.JobCompleted => "Concluído",
+        ExecutionEventType.JobFailed => "Falhou",
+        ExecutionEventType.JobCancelled => "Cancelado",
+        _ => "Em execução"
+    };
 
     void UpdatePhaseChecklist(JobPhase phase)
     {
