@@ -164,12 +164,13 @@ public sealed class AgentOrchestrator
         ToolNames.Build => (ExecutionEventType.BuildStarted, ExecutionEventType.BuildCompleted, ExecutionEventType.BuildFailed),
         ToolNames.Test => (ExecutionEventType.TestsStarted, ExecutionEventType.TestsCompleted, ExecutionEventType.TestsFailed),
         ToolNames.RunCommand => (ExecutionEventType.CommandStarted, ExecutionEventType.CommandCompleted, ExecutionEventType.CommandFailed),
+        ToolNames.RenderPage => (ExecutionEventType.ToolStarted, ExecutionEventType.ToolCompleted, ExecutionEventType.ToolFailed),
         _ => (ExecutionEventType.ToolStarted, ExecutionEventType.ToolCompleted, ExecutionEventType.ToolFailed)
     };
     static string Description(string tool, bool success) => success ? tool switch
-    { ToolNames.ReadFile => "Leu arquivo", ToolNames.WriteFile => "Criou arquivo", ToolNames.ReplaceInFile or ToolNames.ApplyPatch => "Alterou arquivo", ToolNames.GitDiff => "Diff validado", _ => $"Executou {tool}" }
+    { ToolNames.ReadFile => "Leu arquivo", ToolNames.WriteFile => "Criou arquivo", ToolNames.ReplaceInFile or ToolNames.ApplyPatch => "Alterou arquivo", ToolNames.GitDiff => "Diff validado", ToolNames.FetchUrl => "Acessou referência web", ToolNames.RenderPage => "Renderizou e capturou a interface", _ => $"Executou {tool}" }
         : $"Falha em {tool}";
-    static string? Target(MiauAction action) => action.Arguments.TryGetValue("path", out var path) ? path : action.Arguments.TryGetValue("command", out var command) ? command : action.Action;
+    static string? Target(MiauAction action) => action.Arguments.TryGetValue("path", out var path) ? path : action.Arguments.TryGetValue("command", out var command) ? command : action.Arguments.TryGetValue("url", out var url) ? url : action.Action;
     static string Details(ToolResult result) => result.Success ? Trim(result.Output) : result.Error ?? "Erro";
     static void Record(List<TaskTraceEvent> events, ToolResult result) => events.Add(new(DateTimeOffset.Now, "tool", result.Tool, result.Success, result.Success ? result.Output : result.Error ?? "erro"));
     static string BuildVerifiedSummary(string modelSummary, IReadOnlyList<string> files, JobEvidence evidence)
@@ -181,6 +182,8 @@ public sealed class AgentOrchestrator
             summary += "\nVerificação: alterações confirmadas pelo Git diff.";
         if (evidence.ValidationRan && evidence.ValidationPassed)
             summary += "\nValidação: concluída com sucesso.";
+        if (evidence.VisualValidationRan)
+            summary += "\nValidação visual: página renderizada e screenshot gerado.";
         return summary;
     }
 
