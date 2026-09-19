@@ -31,6 +31,8 @@ public sealed class AgentService
         var inspectedCentralFile = false;
         var analysisNudges = 0;
         var actionNudges = 0;
+        var job = new JobEngine(asksForCodeChange, readOnlyRequested);
+        job.Begin(progress);
         if (projectAnalysisRequested)
         {
             progress("▸ Pré-inspeção determinística do projeto");
@@ -153,13 +155,16 @@ public sealed class AgentService
 
             if (calls.Count == 0)
             {
-                if (asksForCodeChange && Regex.IsMatch(content, @"\b(vou|irei|vamos)\b.{0,80}\b(execut|usar|verific|analis|ler|abrir|alter|modific|edit)", RegexOptions.IgnoreCase | RegexOptions.Singleline))
+                if (asksForCodeChange && !job.CanFinish(out var unfinishedReason))
                 {
                     actionNudges++;
-                    if (actionNudges > 3)
-                        return "A tarefa exigia uma alteração, mas o modelo ficou descrevendo a próxima ação sem executá-la. Interrompi para evitar fingir progresso.";
+                    if (actionNudges > 6)
+                    {
+                        job.Fail(progress, unfinishedReason);
+                        return $"A tarefa não atingiu os critérios objetivos de conclusão: {unfinishedReason}";
+                    }
                     messages.Add(new("assistant", content));
-                    messages.Add(new("user", "Não descreva a próxima ação. Execute-a agora por tool_call. Continue usando ferramentas até a alteração solicitada estar realmente aplicada e verificada; só então responda ao usuário."));
+                    messages.Add(new("user", $"MOTOR DA TAREFA: {unfinishedReason}\nPRÓXIMA ETAPA OBRIGATÓRIA: {job.NextInstruction()}"));
                     continue;
                 }
 
@@ -172,6 +177,7 @@ public sealed class AgentService
                     messages.Add(new("user", "A análise ainda está incompleta. Execute AGORA as ferramentas necessárias: list_files na raiz e read_file em README.md e/ou no arquivo .csproj/solution/entry point que aparecer. Não responda com intenção, promessa ou comentário; faça as chamadas de ferramenta."));
                     continue;
                 }
+                job.Complete(progress);
                 return string.IsNullOrWhiteSpace(content) ? "O modelo encerrou sem produzir uma resposta." : content;
             }
 
@@ -196,6 +202,7 @@ public sealed class AgentService
                 }
                 progress(Describe(call.Name, call.Args));
                 string output;
+                var toolSucceeded = true;
                 try
                 {
                     output = await Execute(root, call.Name, call.Args, ct);
@@ -207,7 +214,12 @@ public sealed class AgentService
                         if (file.Equals("README.md", StringComparison.OrdinalIgnoreCase) || file.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase) || file.EndsWith(".sln", StringComparison.OrdinalIgnoreCase) || file.EndsWith(".slnx", StringComparison.OrdinalIgnoreCase) || file is "Program.cs" or "App.axaml.cs" or "MainWindow.axaml.cs") inspectedCentralFile = true;
                     }
                 }
-                catch (Exception ex) { output = "ERRO DA FERRAMENTA: " + ex.Message; }
+                catch (Exception ex)
+                {
+                    toolSucceeded = false;
+                    output = "ERRO DA FERRAMENTA: " + ex.Message;
+                }
+                job.ObserveTool(call.Name, toolSucceeded, progress);
 
                 assistantCalls.Add(new ToolCall(new ToolFunction(call.Name, call.Args)));
                 // Do not feed textual JSON calls back as normal assistant prose.
