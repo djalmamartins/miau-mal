@@ -103,6 +103,16 @@ public sealed class AgentOrchestrator
                         pendingRecovery = null;
                     }
                     turns.Add(new("assistant", raw)); turns.Add(new("user", ToolObservation(result)));
+                    if (result.Success && requirements.RequiresVisualValidation && IsBroadVisualRewrite(task) && response.Action.Action is ToolNames.WriteFile or ToolNames.ApplyPatch)
+                    {
+                        var changedCount = engine.Evidence.FilesChanged.Count;
+                        if (changedCount < 2)
+                            turns.Add(new("user", $"ESCOPO VISUAL PENDENTE: esta é uma reformulação ampla e apenas {changedCount} arquivo(s) foi/foram alterado(s) nesta execução. Antes de renderizar, inspecione e implemente também os demais arquivos relevantes do site (por exemplo CSS e, quando necessário, JS). Não reduza o pedido a pequenas mudanças de texto."));
+                    }
+                    if (result.Success && requirements.RequiresVisualValidation && IsBroadVisualRewrite(task) && response.Action.Action == ToolNames.RenderPage && engine.Evidence.FilesChanged.Count < 2)
+                    {
+                        turns.Add(new("user", "RENDERIZAÇÃO PREMATURA: a página abriu, mas a reformulação ampla ainda não tem alterações estruturais suficientes. Continue implementando o site antes de solicitar inspeção visual."));
+                    }
                     if (!result.Success)
                     {
                         if (!engine.RecordFailure(result.Error!)) break;
