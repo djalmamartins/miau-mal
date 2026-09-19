@@ -94,14 +94,16 @@ public sealed class AgentOrchestrator
                     turns.Add(new("assistant", raw)); turns.Add(new("user", $"FINAL RECUSADO PELO JOB ENGINE: {reason} Emita a action estruturada necessária.")); continue;
                 }
                 var evidence = engine.Evidence; var actions = trace.Where(x => x.Kind == "action_requested").ToArray(); var results = trace.Where(x => x.Kind == "tool").ToArray();
+                var provenFiles = evidence.FilesChanged.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray();
+                var finalSummary = BuildVerifiedSummary(final.Summary, provenFiles, evidence);
                 var record = new TrainingRecord(Guid.NewGuid().ToString("N"), DateTimeOffset.Now, Miau1Coder.AgentVersion, model.ModelId, DatasetService.Fingerprint(workspace),
                     task, plan, actions, results, evidence.FilesInspected, evidence.FilesChanged,
                     actions.Where(x => x.Name is ToolNames.ApplyPatch or ToolNames.ReplaceInFile or ToolNames.WriteFile).Select(x => x.Detail).ToArray(),
                     results.LastOrDefault(x => x.Name == ToolNames.Build)?.Detail, results.LastOrDefault(x => x.Name == ToolNames.Test)?.Detail,
-                    trace.Where(x => !x.Success).Select(x => x.Detail).ToArray(), evidence.Attempts, final.Summary);
+                    trace.Where(x => !x.Success).Select(x => x.Detail).ToArray(), evidence.Attempts, finalSummary);
                 await dataset.SaveCompletedAsync(workspace, record, ct);
                 Emit(ExecutionEventType.JobCompleted, "Tarefa concluída", duration: null, success: true, metadata: new Dictionary<string, string> { ["files_changed"] = evidence.FilesChanged.Count.ToString() });
-                return new(final.Summary, engine.Phase, evidence);
+                return new(finalSummary, engine.Phase, evidence);
             }
             if (!engine.IsTerminal) engine.Fail($"Limite de {maxSteps} etapas atingido.");
             Emit(ExecutionEventType.JobFailed, engine.LastError ?? "A tarefa falhou.", success: false);
@@ -134,6 +136,18 @@ public sealed class AgentOrchestrator
     static string? Target(MiauAction action) => action.Arguments.TryGetValue("path", out var path) ? path : action.Arguments.TryGetValue("command", out var command) ? command : action.Action;
     static string Details(ToolResult result) => result.Success ? Trim(result.Output) : result.Error ?? "Erro";
     static void Record(List<TaskTraceEvent> events, ToolResult result) => events.Add(new(DateTimeOffset.Now, "tool", result.Tool, result.Success, result.Success ? result.Output : result.Error ?? "erro"));
+    static string BuildVerifiedSummary(string modelSummary, IReadOnlyList<string> files, JobEvidence evidence)
+    {
+        var summary = string.IsNullOrWhiteSpace(modelSummary) ? "Tarefa concluída." : modelSummary.Trim();
+        if (files.Count > 0)
+            summary += "\n\nArquivos alterados: " + string.Join(", ", files.Select(x => $"\`{x}\`"));
+        if (evidence.HasGitDiff)
+            summary += "\nVerificação: alterações confirmadas pelo Git diff.";
+        if (evidence.ValidationRan && evidence.ValidationPassed)
+            summary += "\nValidação: concluída com sucesso.";
+        return summary;
+    }
+
     static string ToolObservation(ToolResult result) => $"RESULTADO ESTRUTURADO DA FERRAMENTA {result.Tool}: success={result.Success}; output={Trim(result.Output)}; error={result.Error ?? ""}";
     static string Trim(string value) => value.Length > 30000 ? value[..30000] + "\n[truncado]" : value;
 }
