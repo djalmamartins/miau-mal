@@ -43,7 +43,7 @@
     <TextBlock Text="Como posso ajudar?" FontSize="36" FontWeight="Bold" HorizontalAlignment="Center"/>
     <TextBlock Classes="muted" Text="Codifique. Planeje. Analise. Faça mais com o MIAU." FontSize="18" HorizontalAlignment="Center" Margin="0,10,0,0"/>
    </StackPanel>
-   <ScrollViewer x:Name="Scroller" IsVisible="False"><StackPanel x:Name="Thread" Margin="46,30" Spacing="14"/></ScrollViewer>
+   <ScrollViewer x:Name="Scroller" IsVisible="False" VerticalScrollBarVisibility="Auto"><StackPanel x:Name="Thread" Margin="46,30" Spacing="14"/></ScrollViewer>
   </Grid>
   <Border Grid.Row="2" Margin="28,12,28,24" Padding="14" CornerRadius="18" Background="#12171C" BorderBrush="#2A3138" BorderThickness="1">
    <Grid RowDefinitions="Auto,Auto">
