@@ -47,8 +47,9 @@ public sealed class AgentService
     {
         // Classify explicit requested work first. A scope guard such as
         // "não altere nenhum outro arquivo" must not turn a create/edit task into read-only.
-        var change = Regex.IsMatch(prompt, @"\b(altere|modifique|edite|implemente|adicione|corrija|crie|remova|refatore|faça)\b", RegexOptions.IgnoreCase);
         var explicitReadOnly = Regex.IsMatch(prompt, @"\b(somente\s+leitura|apenas\s+(analise|revise|explique)|não\s+(altere|modifique|edite|mude)\s+(nada|nenhum\s+arquivo|qualquer\s+arquivo|o\s+projeto))\b", RegexOptions.IgnoreCase);
+        var positiveText = Regex.Replace(prompt, @"\bnão\s+(altere|modifique|edite|mude)\b[^.!?]*(?:[.!?]|$)", "", RegexOptions.IgnoreCase);
+        var change = Regex.IsMatch(positiveText, @"\b(altere|modifique|edite|implemente|adicione|corrija|crie|remova|refatore|faça)\b", RegexOptions.IgnoreCase);
         var readOnly = !change && explicitReadOnly;
         return new(change, readOnly, change);
     }
