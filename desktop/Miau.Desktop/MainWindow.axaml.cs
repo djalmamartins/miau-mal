@@ -75,10 +75,16 @@ public partial class MainWindow : Window
     {
         try
         {
-            var path = Path.Combine(AppContext.BaseDirectory, "Assets", "miau-logo.base64");
-            var bytes = Convert.FromBase64String(File.ReadAllText(path).Trim());
-            using var stream = new MemoryStream(bytes);
-            var bitmap = new Bitmap(stream);
+            var imagePath = Path.Combine(AppContext.BaseDirectory, "Assets", "miau-eyes.png");
+            Bitmap bitmap;
+            if (File.Exists(imagePath)) bitmap = new Bitmap(imagePath);
+            else
+            {
+                var legacyPath = Path.Combine(AppContext.BaseDirectory, "Assets", "miau-logo.base64");
+                var bytes = Convert.FromBase64String(File.ReadAllText(legacyPath).Trim());
+                using var stream = new MemoryStream(bytes);
+                bitmap = new Bitmap(stream);
+            }
             SidebarLogo.Source = bitmap;
             WelcomeLogo.Source = bitmap;
         }
