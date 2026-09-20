@@ -2,7 +2,7 @@ using System.Diagnostics;
 
 namespace Miau.Desktop;
 
-public sealed record AgentRunResult(string Summary, JobPhase Phase, JobEvidence Evidence);
+public sealed record AgentRunResult(string Summary, JobPhase Phase, JobEvidence Evidence, string? TrainingRecordId = null);
 
 public sealed class AgentOrchestrator
 {
@@ -246,7 +246,7 @@ public sealed class AgentOrchestrator
                 var record = harvester.Harvest(workspace, model.ModelId, task, plan, trace, evidence, finalSummary, jobWatch.Elapsed, origin);
                 await dataset.SaveCompletedAsync(workspace, record, ct);
                 Emit(ExecutionEventType.JobCompleted, "Tarefa concluída", duration: null, success: true, metadata: new Dictionary<string, string> { ["files_changed"] = evidence.FilesChanged.Count.ToString() });
-                return new(finalSummary, engine.Phase, evidence);
+                return new(finalSummary, engine.Phase, evidence, record.TaskId);
             }
             if (!engine.IsTerminal) engine.Fail($"Limite de {maxSteps} etapas atingido.");
             Emit(ExecutionEventType.JobFailed, engine.LastError ?? "A tarefa falhou.", success: false);

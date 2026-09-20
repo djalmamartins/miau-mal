@@ -20,6 +20,7 @@ public partial class MainWindow : Window
     readonly ConversationService conversations = new();
     readonly DiagnosticsService diagnostics = new();
     readonly EvolutionService evolution = new();
+    readonly LearningPipelineService learning = new();
     readonly SelfRepairService selfRepair = new();
     TrainingScheduler? training;
     CancellationTokenSource? trainingCts;
@@ -625,6 +626,7 @@ public partial class MainWindow : Window
                 ev => Dispatcher.UIThread.Post(() => { activity.Text = ExecutionProgressNarrative.For(ev); Timeline(ev); }));
             activity.Text = "";
             Add("MIAU", result);
+            if (!string.IsNullOrWhiteSpace(agent.LastRunResult?.TrainingRecordId)) AddTrainingReview(agent.LastRunResult.TrainingRecordId);
             // The model/tool execution is finished at this point. Mark it complete before
             // bookkeeping (history, memory and diff refresh) so the UI never looks stuck.
             SetExecutionState("done");
@@ -665,6 +667,40 @@ public partial class MainWindow : Window
             else parts.Add($"\n- {Path.GetFileName(path)} ({ext}): arquivo anexado; conteúdo binário/visual não convertido para texto nesta versão.");
         }
         return string.Join("", parts);
+    }
+
+    async void ExportLora(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var readiness = await learning.GetReadinessAsync(CancellationToken.None);
+            var output = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "MIAU-lora-export-" + DateTime.Now.ToString("yyyyMMdd-HHmmss"));
+            var file = await learning.ExportApprovedForLoraAsync(output, CancellationToken.None);
+            Activity($"Exportação LoRA criada: {file} · {readiness.Approved} exemplo(s) aprovados.");
+            await Message($"Dataset exportado em:\n{file}\n\nExemplos aprovados: {readiness.Approved}. Recomendação para LoRA: {readiness.MinimumRecommended}+ exemplos e ao menos 3 projetos distintos.");
+        }
+        catch (Exception ex) { await Message("Não foi possível exportar exemplos: " + DatasetService.Redact(ex.Message)); }
+    }
+
+    void AddTrainingReview(string taskId)
+    {
+        var label = new TextBlock { Text = "Revisar exemplo para aprendizado", Classes = { "muted" }, FontSize = 11 };
+        var approve = new Button { Content = "Aprovar para treino", Padding = new Avalonia.Thickness(8, 3) };
+        var reject = new Button { Content = "Rejeitar", Padding = new Avalonia.Thickness(8, 3) };
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        actions.Children.Add(approve); actions.Children.Add(reject);
+        async Task Save(TrainingVerdict verdict)
+        {
+            await learning.SetVerdictAsync(taskId, verdict, null, CancellationToken.None);
+            approve.IsEnabled = false; reject.IsEnabled = false;
+            label.Text = verdict == TrainingVerdict.Approved ? "Exemplo aprovado para o dataset de treino." : "Exemplo rejeitado; será usado apenas como evidência de recuperação.";
+            Activity(label.Text);
+        }
+        approve.Click += async (_, _) => await Save(TrainingVerdict.Approved);
+        reject.Click += async (_, _) => await Save(TrainingVerdict.Rejected);
+        var panel = new StackPanel { Spacing = 5, Margin = new Avalonia.Thickness(0, -3, 0, 8) };
+        panel.Children.Add(label); panel.Children.Add(actions); Thread.Children.Add(panel);
+        Dispatcher.UIThread.Post(() => Scroller.ScrollToEnd(), DispatcherPriority.Background);
     }
 
     void Add(string who, string text)
