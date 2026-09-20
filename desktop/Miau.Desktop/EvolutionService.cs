@@ -9,7 +9,7 @@ public sealed record EvolutionSnapshot(string AgentVersion, string Model, string
     int TasksTotal, int TasksCompleted, int TasksFailed, int TasksCancelled, double SuccessRate, int Experiences, int Memories,
     int Failures, int RecoveredFailures, int Retries, int BuildsPassed, int BuildsFailed, int TestsPassed, int TestsFailed,
     double AverageDurationSeconds, int DatasetCompleted, int DatasetRecovery, int DatasetRejected, int DatasetReview,
-    double AverageQualityScore, int TrainingCycles, int TrainingTasks, int TrainingCompleted, int RepairDecisions, int RepairsAccepted, int RepairsRejected, int RepairsPromoted, int RepairsReverted, IReadOnlyList<SkillMetric> Skills, IReadOnlyList<string> RecentActivity, IReadOnlyList<EvolutionPoint> History);
+    double AverageQualityScore, int QualityEvaluated, int LegacyWithoutQualityScore, int TrainingCycles, int TrainingTasks, int TrainingCompleted, int RepairDecisions, int RepairsAccepted, int RepairsRejected, int RepairsPromoted, int RepairsReverted, IReadOnlyList<SkillMetric> Skills, IReadOnlyList<string> RecentActivity, IReadOnlyList<EvolutionPoint> History);
 
 public sealed class EvolutionService
 {
@@ -33,7 +33,8 @@ public sealed class EvolutionService
         var repairsAccepted = repairDecisions.Count(x => Bool(x, "Accepted"));
         var repairsRejected = repairDecisions.Count - repairsAccepted;
         var completed = documents.Count; var failed = rejected.Count; var cancelled = rejected.Count(x => Text(x, "reason").Contains("cancel", StringComparison.OrdinalIgnoreCase));
-        var retries = documents.Sum(x => Number(x, "Retries", "retries")); var quality = documents.Select(x => Decimal(x, "QualityScore", "quality_score")).Where(x => x > 0).ToArray();
+        var retries = documents.Sum(x => Number(x, "Retries", "retries")); var quality = documents.Where(x => Try(x, out _, "QualityScore", "quality_score")).Select(x => Decimal(x, "QualityScore", "quality_score")).ToArray();
+        var legacyWithoutQuality = documents.Count - quality.Length;
         var durations = documents.Select(x => DurationSeconds(x)).Where(x => x > 0).ToArray();
         var toolEvents = documents.SelectMany(ToolResults).ToArray();
         var scopeViolations = rejected.Count(x => Text(x, "reason").Contains("escopo", StringComparison.OrdinalIgnoreCase) || Text(x, "reason").Contains("scope", StringComparison.OrdinalIgnoreCase));
@@ -50,7 +51,7 @@ public sealed class EvolutionService
         return new(Miau1Coder.AgentName, model, Miau1Coder.ProtocolVersion, Miau1Coder.DatasetSchemaVersion, total, completed, failed, cancelled,
             Rate(completed, total), documents.Count + recoveries.Count + rejected.Count, memories.Count, recoveries.Count, recovered, retries,
             buildsPassed, buildsFailed, testsPassed, testsFailed, durations.Length == 0 ? 0 : durations.Average(), completed, recoveries.Count,
-            rejected.Count, review.Count, quality.Length == 0 ? 0 : quality.Average(), trainingCycles.Count, trainingTasks, trainingCompleted, repairDecisions.Count, repairsAccepted, repairsRejected, repairsPromoted, repairsReverted, skills, recent, history);
+            rejected.Count, review.Count, quality.Length == 0 ? 0 : quality.Average(), quality.Length, legacyWithoutQuality, trainingCycles.Count, trainingTasks, trainingCompleted, repairDecisions.Count, repairsAccepted, repairsRejected, repairsPromoted, repairsReverted, skills, recent, history);
     }
 
     static async Task<List<JsonElement>> ReadNamedDocuments(string file, CancellationToken ct)
@@ -98,9 +99,12 @@ public sealed class EvolutionService
     }
     static string SummarizeActivity(JsonElement x)
     {
-        var at = Timestamp(x); var raw = DatasetService.Redact(Text(x, "Task", "request", "FinalResult", "reason")).Replace("\\r", " ").Replace("\\n", " ").Trim();
-        if (raw.Length > 180) raw = raw[..180] + "…";
-        return $"{(at == DateTimeOffset.MinValue ? "sem data" : at.ToString("g"))} · {raw}";
+        var at = Timestamp(x); var tools = ToolResults(x).ToArray();
+        var changed = Try(x, out var files, "FilesChanged", "files_changed") && files.ValueKind == JsonValueKind.Array ? files.GetArrayLength() : 0;
+        var kind = Try(x, out _, "reason") ? "Tarefa rejeitada" : "Tarefa concluída";
+        var build = tools.Any(t => t.Name.Equals("build", StringComparison.OrdinalIgnoreCase) && t.Success) ? " · build aprovado" : "";
+        var tests = tools.Count(t => t.Name.Equals("test", StringComparison.OrdinalIgnoreCase) && t.Success); var testText = tests > 0 ? $" · {tests} validação(ões) de teste" : "";
+        return $"{(at == DateTimeOffset.MinValue ? "sem data" : at.ToString("g"))} · {kind} · {changed} arquivo(s) alterado(s){build}{testText}";
     }
     static int CountTool((string Name, bool Success)[] tools, string name, bool success) => tools.Count(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase) && x.Success == success);
     async Task<List<EvolutionPoint>> LoadHistory(CancellationToken ct) { var file = Path.Combine(appData, "evolution", "history.jsonl"); if (!File.Exists(file)) return []; var result = new List<EvolutionPoint>(); foreach (var line in await File.ReadAllLinesAsync(file, ct)) try { var x = JsonSerializer.Deserialize<EvolutionPoint>(line); if (x is not null) result.Add(x); } catch { } return result; }
