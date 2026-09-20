@@ -29,9 +29,18 @@ public sealed class TrainingScheduler
             {
                 await SeedAsync(temp, task.Id, ct);
                 progress?.Invoke($"Treino {task.Id}: {task.Title}");
-                await agent.RunAsync(temp, task.Prompt, ct, x => progress?.Invoke(x), "training");
-                if (await VerifyAsync(temp, task.Id, ct)) completed++;
-                else { rejected++; progress?.Invoke($"Treino {task.Id} rejeitado: resultado não corresponde ao objetivo controlado."); }
+                var deferred = new DeferredDatasetService();
+                var run = await agent.RunForTrainingAsync(temp, task.Prompt, ct, x => progress?.Invoke(x), deferred);
+                if (run.Phase == JobPhase.Completed && await VerifyAsync(temp, task.Id, ct))
+                {
+                    await deferred.CommitAsync(new DatasetService(), temp, ct); completed++;
+                }
+                else
+                {
+                    rejected++;
+                    await new DatasetService().SaveRejectedAsync(task.Prompt, agent.Model, $"Treino controlado '{task.Id}' não passou na verificação externa.", ct);
+                    progress?.Invoke($"Treino {task.Id} rejeitado: resultado não corresponde ao objetivo controlado.");
+                }
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex) { failed++; progress?.Invoke($"Treino {task.Id} falhou: {DatasetService.Redact(ex.Message)}"); }
@@ -80,5 +89,12 @@ public sealed class TrainingScheduler
         var psi = new System.Diagnostics.ProcessStartInfo("git") { WorkingDirectory = root, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
         foreach (var args in new[]{ new[]{"init"}, new[]{"add","."}, new[]{"-c","user.name=MIAU Training","-c","user.email=miau@local","commit","-m","seed"} })
         { psi.ArgumentList.Clear(); foreach(var a in args) psi.ArgumentList.Add(a); using var p=System.Diagnostics.Process.Start(psi)!; await p.WaitForExitAsync(ct); }
+    }
+
+    sealed class DeferredDatasetService : IDatasetService
+    {
+        TrainingRecord? record;
+        public Task SaveCompletedAsync(string workspace, TrainingRecord value, CancellationToken ct) { record = value; return Task.CompletedTask; }
+        public Task CommitAsync(IDatasetService target, string workspace, CancellationToken ct) => record is null ? Task.CompletedTask : target.SaveCompletedAsync(workspace, record, ct);
     }
 }

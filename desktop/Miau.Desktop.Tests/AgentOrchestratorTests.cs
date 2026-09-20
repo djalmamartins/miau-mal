@@ -54,6 +54,21 @@ public sealed class AgentOrchestratorTests
     }
 
     [Fact]
+    public async Task PrematureFinalIsReportedAsPolicyRecoveryNotToolFailure()
+    {
+        var model = new QueueModel(
+            """{"type":"final","summary":"cedo","files_changed":[]}""",
+            """{"type":"action","action":"read_file","arguments":{"path":"a.cs"}}""",
+            """{"type":"action","action":"replace_in_file","arguments":{"path":"a.cs","old_text":"a","new_text":"b"}}""",
+            """{"type":"final","summary":"feito","files_changed":["a.cs"]}""");
+        var events = new List<ExecutionEvent>();
+        var result = await new AgentOrchestrator(model, new RecordingTools(), new RecordingDataset()).RunAsync("/workspace", "corrija a.cs", new(true, false), default, eventSink: events.Add);
+        Assert.Equal(JobPhase.Completed, result.Phase);
+        Assert.Contains(events, x => x.Type == ExecutionEventType.PolicyRecovery && x.Success == true);
+        Assert.DoesNotContain(events, x => x.Type == ExecutionEventType.RetryStarted && x.Description.Contains("Final prematuro", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task DatasetIsNotSavedWhenJobFails()
     {
         var dataset = new RecordingDataset();

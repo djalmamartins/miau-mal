@@ -82,7 +82,7 @@ public sealed class AgentOrchestrator
                             trace.Add(new(DateTimeOffset.Now, "policy", blocked.Tool, false, blocked.Error!));
                             turns.Add(new("assistant", raw));
                             turns.Add(new("user", ToolObservation(blocked) + "\nESTRATÉGIA OBRIGATÓRIA: a tarefa pede uma reformulação visual ampla. Use write_file para reestruturar integralmente o arquivo lido ou apply_patch para múltiplas alterações estruturadas. Não reduza o pedido a trocas pontuais de texto."));
-                            Emit(ExecutionEventType.RetryStarted, "Selecionando estratégia de edição estrutural", targetPath, success: false, details: blocked.Error);
+                            Emit(ExecutionEventType.PolicyRecovery, "Selecionando estratégia de edição estrutural", targetPath, success: true, details: blocked.Error);
                             continue;
                         }
                     }
@@ -92,7 +92,7 @@ public sealed class AgentOrchestrator
                         trace.Add(new(DateTimeOffset.Now, "policy", blocked.Tool, false, blocked.Error!));
                         turns.Add(new("assistant", raw));
                         turns.Add(new("user", ToolObservation(blocked) + "\nRECUPERAÇÃO OBRIGATÓRIA: não tente replace_in_file novamente. Use write_file com o conteúdo completo atual ou apply_patch."));
-                        Emit(ExecutionEventType.RetryStarted, "Mudando estratégia de edição", Target(response.Action), success: false, details: blocked.Error); continue;
+                        Emit(ExecutionEventType.PolicyRecovery, "Mudando estratégia de edição", Target(response.Action), success: true, details: blocked.Error); continue;
                     }
                     if (response.Action.Action == ToolNames.RenderPage && requirements.RequiresVisualValidation && IsBroadVisualRewrite(task))
                     {
@@ -107,7 +107,7 @@ public sealed class AgentOrchestrator
                             trace.Add(new(DateTimeOffset.Now, "acceptance", ToolNames.RenderPage, false, blocked.Error!));
                             turns.Add(new("assistant", raw));
                             turns.Add(new("user", $"RENDERIZAÇÃO BLOQUEADA: {blocked.Error}. Implemente essas entregas concretas antes de renderizar ou inspecionar visualmente."));
-                            Emit(ExecutionEventType.RetryStarted, "Critérios de aceitação pendentes", htmlPath, success: false, details: blocked.Error);
+                            Emit(ExecutionEventType.PolicyRecovery, "Critérios de aceitação pendentes", htmlPath, success: true, details: blocked.Error);
                             continue;
                         }
                         foreach (var criterion in acceptance.Criteria.Where(x => x.Type == AcceptanceType.Structural))
@@ -171,7 +171,7 @@ public sealed class AgentOrchestrator
                 var completion = CompletionGate.BeforeValidation(requirements, acceptance, completionDelta);
                 if (!completion.Allowed)
                 {
-                    Emit(ExecutionEventType.RetryStarted, "Final prematuro rejeitado antes da validação", success: false, details: completion.Reason);
+                    Emit(ExecutionEventType.PolicyRecovery, "Final prematuro rejeitado antes da validação", success: true, details: completion.Reason);
                     turns.Add(new("assistant", raw)); turns.Add(new("user", $"COMPLETION GATE: {completion.Reason} Critérios pendentes: {acceptance.PendingSummary()}. Continue a implementação; não tente finalizar novamente sem nova evidência."));
                     continue;
                 }
@@ -202,7 +202,7 @@ public sealed class AgentOrchestrator
                         // not that this run changed anything. Do not spend retry budget here: redirect
                         // the model back to inspection/editing and reserve attempts for real tool failures.
                         const string scopeReason = "Esta execução ainda não aplicou nenhuma alteração. O git diff existente pode ser anterior à tarefa.";
-                        Emit(ExecutionEventType.RetryStarted, "Ainda falta editar nesta execução", success: false, details: scopeReason);
+                        Emit(ExecutionEventType.PolicyRecovery, "Ainda falta editar nesta execução", success: true, details: scopeReason);
                         turns.Add(new("assistant", raw));
                         turns.Add(new("user", $"EXECUÇÃO INCOMPLETA: {scopeReason} Leia os arquivos alvo de site-teste e aplique uma alteração estruturada antes de tentar finalizar. Não use git_diff como prova de edição desta execução."));
                         continue;
@@ -229,7 +229,7 @@ public sealed class AgentOrchestrator
                 if (requirements.RequiresVisualValidation && IsBroadVisualRewrite(task) && !HasBroadVisualEvidence(engine.Evidence))
                 {
                     const string breadthReason = "A reformulação visual ampla ainda não tem evidência suficiente de implementação estrutural.";
-                    Emit(ExecutionEventType.RetryStarted, "Escopo visual ainda superficial", success: false, details: breadthReason);
+                    Emit(ExecutionEventType.PolicyRecovery, "Escopo visual ainda superficial", success: true, details: breadthReason);
                     turns.Add(new("assistant", raw));
                     turns.Add(new("user", $"FINAL RECUSADO: {breadthReason} Uma tarefa ampla não pode ser concluída com apenas uma alteração pontual. Reestruture os arquivos necessários (HTML/CSS/JS conforme o projeto), implemente as seções e responsividade pedidas, então renderize e inspecione novamente."));
                     continue;

@@ -443,7 +443,7 @@ public partial class MainWindow : Window
         };
         ExecutionStateText.Text = EventStateLabel(ev.Type);
         UpdatePhaseChecklist(ev.Phase);
-        var symbol = ev.Success switch { true => "✓", false => "✕", _ => "›" };
+        var symbol = ev.Type is ExecutionEventType.RecoveryStarted or ExecutionEventType.PolicyRecovery ? "↻" : ev.Success switch { true => "✓", false => "✕", _ => "›" };
         var elapsed = ev.Duration is { } d ? $" · {d.TotalSeconds:0.0}s" : "";
         var narrative = ExecutionNarrative(ev);
         var title = $"{symbol} {narrative}{elapsed}" + (string.IsNullOrWhiteSpace(ev.Target) || ev.Type is ExecutionEventType.ModelRequestStarted or ExecutionEventType.ModelRequestCompleted ? "" : $"\n  {ev.Target}");
@@ -476,6 +476,7 @@ public partial class MainWindow : Window
         ExecutionEventType.TestsStarted => "Executando os testes",
         ExecutionEventType.TestsCompleted => "Testes concluídos",
         ExecutionEventType.RetryStarted => "Encontrei um problema e vou tentar outra estratégia",
+        ExecutionEventType.PolicyRecovery => "Ajustando a estratégia para cumprir os critérios",
         ExecutionEventType.JobCompleted => "Tarefa concluída",
         ExecutionEventType.JobFailed => "A execução foi interrompida por uma falha",
         ExecutionEventType.JobCancelled => "Execução cancelada",
@@ -510,6 +511,7 @@ public partial class MainWindow : Window
         ExecutionEventType.ProgressRecorded => "Progresso comprovado",
         ExecutionEventType.StagnationDetected => "Estagnação detectada",
         ExecutionEventType.RecoveryStarted => "Recuperando execução",
+        ExecutionEventType.PolicyRecovery => "Ajustando estratégia",
         ExecutionEventType.ModelTimeout => "Modelo excedeu o tempo",
         ExecutionEventType.JobCompleted => "Concluído",
         ExecutionEventType.JobFailed => "Falhou",

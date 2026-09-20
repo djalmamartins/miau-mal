@@ -16,6 +16,17 @@ public sealed class AgentService
     public Task<string> RunWithEventsAsync(string root, string prompt, CancellationToken ct, Action<ExecutionEvent> events)
         => RunCoreAsync(root, prompt, ct, events, "interactive");
 
+    public async Task<AgentRunResult> RunForTrainingAsync(string root, string prompt, CancellationToken ct, Action<string> progress, IDatasetService dataset)
+    {
+        var requirements = Classify(prompt);
+        var adapter = new OllamaModelAdapter(Model, requestTimeout: ModelTimeout);
+        var orchestrator = new AgentOrchestrator(adapter, tools, dataset);
+        var result = await orchestrator.RunAsync(root, prompt, requirements, ct,
+            eventSink: ev => progress(ev.Description + (string.IsNullOrWhiteSpace(ev.Target) ? "" : $": {ev.Target}")), origin: "training");
+        LastRunResult = result;
+        return result;
+    }
+
     async Task<string> RunCoreAsync(string root, string prompt, CancellationToken ct, Action<ExecutionEvent> events, string origin)
     {
         var requirements = Classify(prompt);
