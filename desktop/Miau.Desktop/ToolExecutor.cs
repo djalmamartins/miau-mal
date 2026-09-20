@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -19,6 +20,8 @@ public interface IToolExecutor
 
 public sealed class ToolExecutor : IToolExecutor
 {
+    readonly IWebReferenceProvider references;
+    public ToolExecutor(IWebReferenceProvider? references = null) => this.references = references ?? new HttpReferenceProvider();
     static readonly string[] Dangerous = ["git reset --hard", "git clean", "git push --force", "git push -f", "rm -rf", "rmdir /s", "del /f /s", "format ", "shutdown", "reboot"];
     public async Task<ToolResult> ExecuteAsync(string workspace, MiauAction action, bool readOnly, CancellationToken ct)
     {
@@ -151,29 +154,28 @@ Não invente elementos que não aparecem na imagem. Termine com VEREDITO: APROVA
             ("visual_validation", "true"), ("screenshot_path", screenshot), ("screenshot_hash", ProgressTracker.ArtifactHash(await File.ReadAllBytesAsync(screenshot, ct))), ("viewport", $"{width}x{height}"), ("rendered_path", relative));
     }
 
-    static async Task<ToolResult> FetchUrl(string value, CancellationToken ct)
+    async Task<ToolResult> FetchUrl(string value, CancellationToken ct)
     {
         if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
             return ToolResult.Fail(ToolNames.FetchUrl, "URL pública http/https inválida.");
-        if (uri.IsLoopback || uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase))
+        if (uri.IsLoopback || uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) || IsPrivateAddress(uri.Host))
             return ToolResult.Fail(ToolNames.FetchUrl, "Acesso web local/loopback é bloqueado.");
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeout.CancelAfter(TimeSpan.FromSeconds(20));
-        using var client = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("MIAU1-Coder/0.1");
-        try
-        {
-            using var response = await client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
-            response.EnsureSuccessStatusCode();
-            var text = await response.Content.ReadAsStringAsync(timeout.Token);
-            if (text.Length > 50000) text = text[..50000] + "\n[conteúdo web truncado]";
-            return ToolResult.Ok(ToolNames.FetchUrl, text, ("url", uri.ToString()), ("content_type", response.Content.Headers.ContentType?.MediaType ?? ""));
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            return ToolResult.Fail(ToolNames.FetchUrl, "Tempo limite de 20s ao acessar a URL.");
-        }
-        catch (HttpRequestException ex) { return ToolResult.Fail(ToolNames.FetchUrl, "Falha HTTP: " + ex.Message); }
+        var result = await references.FetchAsync(uri, ct);
+        if (!result.Available)
+            return ToolResult.Ok(ToolNames.FetchUrl, $"Referência indisponível ({result.Reason}). O conteúdo NÃO foi analisado; continue somente com os requisitos do usuário e o projeto local.", ("url", uri.ToString()), ("reference_status", "unavailable"), ("reference_analyzed", "false"));
+        var text = result.Content!; if (text.Length > 50000) text = text[..50000] + "\n[conteúdo web truncado]";
+        return ToolResult.Ok(ToolNames.FetchUrl, text, ("url", uri.ToString()), ("content_type", result.ContentType ?? ""), ("reference_status", "available"), ("reference_analyzed", "true"));
+    }
+
+    static bool IsPrivateAddress(string host)
+    {
+        if (!IPAddress.TryParse(host, out var address)) return false;
+        if (IPAddress.IsLoopback(address) || address.IsIPv6LinkLocal || address.IsIPv6SiteLocal) return true;
+        var bytes = address.MapToIPv4().GetAddressBytes();
+        return bytes[0] == 10 || bytes[0] == 127 ||
+            (bytes[0] == 169 && bytes[1] == 254) ||
+            (bytes[0] == 172 && bytes[1] is >= 16 and <= 31) ||
+            (bytes[0] == 192 && bytes[1] == 168);
     }
 
     public async Task<ToolResult> ValidateAsync(string workspace, CancellationToken ct)
@@ -240,7 +242,12 @@ Não invente elementos que não aparecem na imagem. Termine com VEREDITO: APROVA
     static ToolResult WithMetadata(ToolResult result, string key, string value) => result with { Metadata = result.Metadata.Concat(new[] { new KeyValuePair<string, string>(key, value) }).ToDictionary(x => x.Key, x => x.Value) };
 
     static async Task<ToolResult> Write(string tool, string path, string content, string relative, CancellationToken ct)
-    { Directory.CreateDirectory(Path.GetDirectoryName(path)!); await File.WriteAllTextAsync(path, content, ct); return ToolResult.Ok(tool, $"Arquivo salvo: {relative}", ("changed_path", relative)); }
+    {
+        if (File.Exists(path) && await File.ReadAllTextAsync(path, ct) == content)
+            return ToolResult.Ok(tool, "NoEffectiveChange: a gravação proposta é idêntica ao conteúdo atual.", ("effective_change", "false"));
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!); await File.WriteAllTextAsync(path, content, ct);
+        return ToolResult.Ok(tool, $"Arquivo salvo: {relative}", ("changed_path", relative), ("effective_change", "true"));
+    }
     static ToolResult Delete(string tool, string path, string relative)
     {
         if (!File.Exists(path)) throw new FileNotFoundException($"Arquivo não encontrado: {relative}");
@@ -261,9 +268,10 @@ Não invente elementos que não aparecem na imagem. Termine com VEREDITO: APROVA
         if (matches > 1)
             throw new InvalidOperationException($"Edição recusada: old_text corresponde a {matches} trechos. Envie um trecho maior e único, ou use write_file para substituir o arquivo completo.");
 
-        var first = current.IndexOf(oldText, StringComparison.Ordinal);
-        await File.WriteAllTextAsync(path, current[..first] + newText + current[(first + oldText.Length)..], ct);
-        return ToolResult.Ok(tool, $"Trecho alterado: {relative}", ("changed_path", relative));
+        var first = current.IndexOf(oldText, StringComparison.Ordinal); var proposed = current[..first] + newText + current[(first + oldText.Length)..];
+        if (proposed == current) return ToolResult.Ok(tool, "NoEffectiveChange: a substituição não altera o arquivo.", ("effective_change", "false"));
+        await File.WriteAllTextAsync(path, proposed, ct);
+        return ToolResult.Ok(tool, $"Trecho alterado: {relative}", ("changed_path", relative), ("effective_change", "true"));
     }
 
     static int CountOccurrences(string text, string value)
@@ -281,9 +289,12 @@ Não invente elementos que não aparecem na imagem. Termine com VEREDITO: APROVA
     {
         if (string.IsNullOrWhiteSpace(patch)) throw new InvalidOperationException("Patch vazio.");
         var temp = Path.Combine(Path.GetTempPath(), $"miau-{Guid.NewGuid():N}.patch");
-        try { await File.WriteAllTextAsync(temp, patch, ct); var output = await Run(workspace, "git", ["apply", "--whitespace=nowarn", temp], ct); return ToolResult.Ok(tool, output, ("changed_path", "(patch)")); }
+        var baseline = WorkspaceBaseline.Capture(workspace);
+        try { await File.WriteAllTextAsync(temp, patch, ct); var output = await Run(workspace, "git", ["apply", "--whitespace=nowarn", temp], ct); return PatchResult(tool, output, baseline.ChangesProducedNow(workspace)); }
         finally { File.Delete(temp); }
     }
+    public static ToolResult PatchResult(string tool, string output, IReadOnlyCollection<string> delta) =>
+        delta.Count == 0 ? ToolResult.Ok(tool, "NoEffectiveChange: o patch não alterou o workspace.", ("effective_change", "false")) : ToolResult.Ok(tool, output, ("changed_path", "(patch)"), ("effective_change", "true"));
     static async Task<ToolResult> GitDiff(string workspace, CancellationToken ct)
     {
         var diff = await Run(workspace, "git", ["diff", "--no-color"], ct);
@@ -327,6 +338,18 @@ Não invente elementos que não aparecem na imagem. Termine com VEREDITO: APROVA
             fromWorkspace.StartsWith(".." + Path.DirectorySeparatorChar, comparison) ||
             fromWorkspace.StartsWith(".." + Path.AltDirectorySeparatorChar, comparison))
             throw new InvalidOperationException("Caminho fora do workspace.");
+
+        var cursor = basePath;
+        foreach (var segment in fromWorkspace.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries))
+        {
+            cursor = Path.Combine(cursor, segment); FileSystemInfo info = Directory.Exists(cursor) ? new DirectoryInfo(cursor) : new FileInfo(cursor);
+            if (info.Exists && info.LinkTarget is not null)
+            {
+                var resolved = info.ResolveLinkTarget(true)?.FullName ?? throw new InvalidOperationException("Link simbólico inválido.");
+                var rel = Path.GetRelativePath(basePath, resolved);
+                if (Path.IsPathRooted(rel) || rel == ".." || rel.StartsWith(".." + Path.DirectorySeparatorChar)) throw new InvalidOperationException("Link simbólico aponta para fora do workspace.");
+            }
+        }
 
         return full;
     }

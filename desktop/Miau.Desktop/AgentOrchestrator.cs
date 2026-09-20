@@ -167,6 +167,14 @@ public sealed class AgentOrchestrator
 
                 var final = response.Final!;
                 Emit(ExecutionEventType.CriteriaUpdated, $"Critérios {acceptance.SatisfiedCount}/{acceptance.RequiredCount} atendidos", success: acceptance.RequiredSatisfied);
+                var completionDelta = workspaceBaseline?.ChangesProducedNow(workspace) ?? engine.Evidence.FilesChanged.Where(x => x != "(patch)").ToArray();
+                var completion = CompletionGate.BeforeValidation(requirements, acceptance, completionDelta);
+                if (!completion.Allowed)
+                {
+                    Emit(ExecutionEventType.RetryStarted, "Final prematuro rejeitado antes da validação", success: false, details: completion.Reason);
+                    turns.Add(new("assistant", raw)); turns.Add(new("user", $"COMPLETION GATE: {completion.Reason} Critérios pendentes: {acceptance.PendingSummary()}. Continue a implementação; não tente finalizar novamente sem nova evidência."));
+                    continue;
+                }
                 if (requirements.RequiresChange)
                 {
                     var diff = await ExecuteTool(workspace, new(ToolNames.GitDiff, [], "Verificação obrigatória do motor."), true, engine, trace, Emit, ct);
@@ -186,8 +194,7 @@ public sealed class AgentOrchestrator
                 }
                 if (requirements.RequiresChange)
                 {
-                    var producedNow = workspaceBaseline?.ChangesProducedNow(workspace);
-                    var actual = (producedNow ?? engine.Evidence.FilesChanged.Where(x => x != "(patch)").ToArray()).OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray();
+                    var actual = completionDelta.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray();
                     var declared = final.FilesChanged.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray();
                     if (actual.Length == 0)
                     {

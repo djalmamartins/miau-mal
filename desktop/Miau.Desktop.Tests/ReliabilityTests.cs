@@ -42,28 +42,43 @@ public sealed class ReliabilityTests : IDisposable
         using (lease) Assert.False(coordinator.TryAcquire(root, ExecutionKind.Training, out _));
         Assert.True(coordinator.TryAcquire(root, ExecutionKind.Training, out var after)); after!.Dispose();
     }
-    [Fact] public void WorkspaceBaselineExcludesOldChanges()
+    [Fact] public void PreExistingGitChangesAreNotTaskEvidence()
     {
         File.WriteAllText(Path.Combine(root,"old.txt"), "dirty"); var baseline = WorkspaceBaseline.Capture(root); File.WriteAllText(Path.Combine(root,"new.txt"), "job");
         var changes = baseline.ChangesProducedNow(root); Assert.Contains("new.txt", changes); Assert.DoesNotContain("old.txt", changes);
+    }
+    [Fact] public void TaskDeltaPreservesUserChanges()
+    {
+        var userFile = Path.Combine(root, "user.txt"); File.WriteAllText(userFile, "user work");
+        var baseline = WorkspaceBaseline.Capture(root); File.WriteAllText(Path.Combine(root, "agent.txt"), "agent work");
+        Assert.Equal("user work", File.ReadAllText(userFile)); Assert.Equal(["agent.txt"], baseline.ChangesProducedNow(root));
     }
     [Fact] public void RequiredAcceptanceCriterionBlocksCompletion()
     {
         var plan = new AcceptancePlan([new("required", "obrigatório", AcceptanceType.Structural, true)]); var job = new JobEngine(new(false,true), acceptance: plan); job.Start(); job.Observe(ToolResult.Ok(ToolNames.ReadFile,"ok",("inspected_path","a")));
         Assert.False(job.TryComplete(out var reason)); Assert.Contains("obrigatório", reason); plan.Satisfy("required","evidência"); Assert.True(job.TryComplete(out _));
     }
-    [Fact] public void ResponsiveTaskRequiresDesktopAndMobileRender()
+    [Fact] public void ResponsiveVisualTaskRequiresDesktopAndMobile()
     {
         var req = new JobRequirements(true,false,true,true); var plan = AcceptancePlanner.Build("site responsivo", req); var job = new JobEngine(req, acceptance: plan); job.Start(); job.Observe(ToolResult.Ok(ToolNames.ReadFile,"",("inspected_path","index.html"))); job.Observe(ToolResult.Ok(ToolNames.WriteFile,"",("changed_path","index.html"))); job.Observe(ToolResult.Ok(ToolNames.GitDiff,"",("has_changes","true"))); job.Observe(ToolResult.Ok(ToolNames.Test,"",("validation","true"))); job.Observe(ToolResult.Ok(ToolNames.RenderPage,"",("visual_validation","true"),("viewport","1440x1200"))); job.Observe(ToolResult.Ok(ToolNames.InspectVisual,"",("visual_inspection","true"),("visual_verdict","approved")));
         Assert.False(job.TryComplete(out var reason)); Assert.Contains("mobile", reason); plan.Satisfy("responsive-structure", "viewport + media"); job.Observe(ToolResult.Ok(ToolNames.RenderPage,"",("visual_validation","true"),("viewport","390x844"))); Assert.True(job.TryComplete(out _));
     }
-    [Fact] public void IdenticalScreenshotStopsVisualLoopAndLimitIsBounded()
+    [Fact] public void IdenticalScreenshotIsNotProgress()
     {
         var policy = new VisualRevisionPolicy(2); Assert.True(policy.CanRevise("a","c1",out _)); Assert.False(policy.CanRevise("a","c1",out var same)); Assert.Contains("idênticos", same);
         Assert.True(policy.CanRevise("b","c1",out _)); Assert.False(policy.CanRevise("c","c1",out var limit)); Assert.Contains("Limite", limit);
     }
-    [Fact] public void GenericVisualReviewIsNotActionable()
+    [Fact] public void VisualReviewRequiresActionableEvidence()
     { Assert.False(ToolExecutor.HasActionableVisualProblem("VEREDITO: REVISAR. Poderia melhorar.")); Assert.True(ToolExecutor.HasActionableVisualProblem("PROBLEMA: contraste. EVIDÊNCIA: botão. PRIORIDADE: alta. VEREDITO: REVISAR")); }
+
+    [Fact] public void BroadVisualTaskRequiresStructuralEvidence()
+    {
+        var plan = AcceptancePlanner.Build("Melhore significativamente com header, hero, produtos, editorial, CTA, footer e responsividade", new(true, false, true, true));
+        var required = plan.Criteria.Where(x => x.Required).Select(x => x.Id).ToArray();
+        Assert.Contains("header", required); Assert.Contains("hero", required); Assert.Contains("products", required); Assert.Contains("editorial", required);
+        Assert.Contains("cta", required); Assert.Contains("footer", required); Assert.Contains("responsive-structure", required);
+        Assert.Contains("desktop-render", required); Assert.Contains("mobile-render", required); Assert.Contains("visual-inspection", required);
+    }
 
     sealed class TimeoutModel(int failures) : IModelAdapter { public string ModelId => "timeout"; public int Calls { get; private set; } public Task<string> CompleteStepAsync(ModelRequest request, CancellationToken ct) { Calls++; if (Calls <= failures) throw new TimeoutException("90s"); return Task.FromResult("{\"type\":\"final\",\"summary\":\"analisado\",\"files_changed\":[]}"); } }
     sealed class ReadTools : IToolExecutor { public Task<ToolResult> ExecuteAsync(string workspace, MiauAction action, bool readOnly, CancellationToken ct) => Task.FromResult(ToolResult.Ok(action.Action,"files",("inspected_path","."))); public Task<ToolResult> ValidateAsync(string workspace, CancellationToken ct) => Task.FromResult(ToolResult.Ok(ToolNames.Test,"ok",("validation","true"))); }
