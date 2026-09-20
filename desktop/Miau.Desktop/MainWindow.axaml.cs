@@ -398,7 +398,7 @@ public partial class MainWindow : Window
     {
         if (executionFinished) { executionTimer.Stop(); return; }
         var now = DateTimeOffset.Now;
-        ExecutionElapsedText.Text = (now - executionStarted).ToString(@"mm\:ss");
+        ExecutionElapsedText.Text = "Processando há " + (now - executionStarted).ToString(@"mm\:ss");
         executionBlink = !executionBlink;
         ExecutionDot.Opacity = executionBlink ? 1 : .28;
 
@@ -622,7 +622,7 @@ public partial class MainWindow : Window
             var recalled = await memory.RecallAsync(workspace, prompt, cts.Token);
             var effectivePrompt = string.IsNullOrWhiteSpace(recalled) ? prompt : $"{prompt}\n\nMEMÓRIA RELEVANTE DESTE PROJETO:\n{recalled}";
             var result = await agent.RunWithEventsAsync(workspace, effectivePrompt, cts.Token,
-                ev => Dispatcher.UIThread.Post(() => { activity.Text = ev.Description; Timeline(ev); }));
+                ev => Dispatcher.UIThread.Post(() => { activity.Text = ExecutionProgressNarrative.For(ev); Timeline(ev); }));
             activity.Text = "";
             Add("MIAU", result);
             // The model/tool execution is finished at this point. Mark it complete before
