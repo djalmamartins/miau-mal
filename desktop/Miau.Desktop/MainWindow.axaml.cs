@@ -258,6 +258,8 @@ public partial class MainWindow : Window
     async Task RunAutonomousAsync(CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(workspace)) return;
+        if (!ExecutionCoordination.Shared.TryAcquire(workspace, ExecutionKind.AutonomousJob, out var autonomousLease)) { Activity("Modo autônomo aguardando: workspace ocupado."); return; }
+        using var executionLease = autonomousLease;
         try
         {
             await runner.RunAsync(
@@ -273,7 +275,7 @@ public partial class MainWindow : Window
                         var recalled = await memory.RecallAsync(workspace, job.Prompt, token);
                         var effective = string.IsNullOrWhiteSpace(recalled) ? job.Prompt : $"{job.Prompt}\n\nMEMÓRIA RELEVANTE DESTE PROJETO:\n{recalled}";
                         result = await agent.RunAsync(workspace, effective, token,
-                            ev => Dispatcher.UIThread.Post(() => Activity(ev)));
+                            ev => Dispatcher.UIThread.Post(() => Activity(ev)), "autonomous");
                         await memory.RememberAsync(workspace, job.Prompt, result, token);
                         var delivery = await jobs.DeliverAsync(workspace, job, result, token);
                         var report = await reports.CreateAsync(workspace, job, state.AgentId, started, "Concluído", $"{result}\n\nCommit: {delivery.Commit}\nPR: {delivery.PullRequestUrl}", token);
@@ -498,6 +500,11 @@ public partial class MainWindow : Window
         ExecutionEventType.TestsCompleted => "Testes concluídos",
         ExecutionEventType.TestsFailed => "Falha nos testes",
         ExecutionEventType.RetryStarted => "Tentando novamente",
+        ExecutionEventType.CriteriaUpdated => "Critérios atualizados",
+        ExecutionEventType.ProgressRecorded => "Progresso comprovado",
+        ExecutionEventType.StagnationDetected => "Estagnação detectada",
+        ExecutionEventType.RecoveryStarted => "Recuperando execução",
+        ExecutionEventType.ModelTimeout => "Modelo excedeu o tempo",
         ExecutionEventType.JobCompleted => "Concluído",
         ExecutionEventType.JobFailed => "Falhou",
         ExecutionEventType.JobCancelled => "Cancelado",
@@ -582,6 +589,8 @@ public partial class MainWindow : Window
         if (attachments.Count > 0) prompt += await BuildAttachmentContext();
         if (string.IsNullOrWhiteSpace(workspace)) { await Message("Abra um projeto primeiro."); return; }
 
+        if (!ExecutionCoordination.Shared.TryAcquire(workspace, ExecutionKind.Interactive, out var interactiveLease)) { await Message("Este workspace está ocupado por outra execução."); return; }
+        using var executionLease = interactiveLease;
         Welcome.IsVisible = false;
         Scroller.IsVisible = true;
         Add("Você", userPrompt + (attachments.Count > 0 ? $"\n📎 {string.Join(", ", attachments.Select(Path.GetFileName))}" : ""));

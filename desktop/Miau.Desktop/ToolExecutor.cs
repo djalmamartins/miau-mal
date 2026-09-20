@@ -33,8 +33,8 @@ public sealed class ToolExecutor : IToolExecutor
                 ToolNames.ReadFile => ToolResult.Ok(action.Action, await File.ReadAllTextAsync(SafePath(workspace, Arg("path")), ct), ("inspected_path", Arg("path"))),
                 ToolNames.Search => ToolResult.Ok(action.Action, Search(workspace, Arg("query")), ("inspected_path", ".")),
                 ToolNames.FetchUrl => await FetchUrl(Arg("url"), ct),
-                ToolNames.RenderPage => await RenderPage(workspace, Arg("path", "index.html"), ct),
-                ToolNames.InspectVisual => await InspectVisual(Arg("screenshot_path"), Arg("model", "llava:7b"), ct),
+                ToolNames.RenderPage => await RenderPage(workspace, Arg("path", "index.html"), ParseViewport(Arg("width"), 1440), ParseViewport(Arg("height"), 1200), ct),
+                ToolNames.InspectVisual => await InspectVisual(Arg("screenshot_path"), Arg("model", "llava:7b"), Arg("viewport", "desconhecido"), Arg("criteria"), Arg("structure"), ct),
                 ToolNames.WriteFile => await Write(action.Action, SafePath(workspace, Arg("path")), Arg("content"), Arg("path"), ct),
                 ToolNames.ReplaceInFile => await Replace(action.Action, SafePath(workspace, Arg("path")), Arg("old_text"), Arg("new_text"), Arg("path"), ct),
                 ToolNames.DeleteFile => Delete(action.Action, SafePath(workspace, Arg("path")), Arg("path")),
@@ -50,13 +50,15 @@ public sealed class ToolExecutor : IToolExecutor
         catch (Exception ex) when (ex is not OperationCanceledException) { return ToolResult.Fail(action.Action, ex.Message); }
     }
 
-    static async Task<ToolResult> InspectVisual(string screenshot, string model, CancellationToken ct)
+    static int ParseViewport(string value, int fallback) => int.TryParse(value, out var parsed) ? Math.Clamp(parsed, 240, 3840) : fallback;
+    static async Task<ToolResult> InspectVisual(string screenshot, string model, string viewport, string criteria, string structure, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(screenshot) || !File.Exists(screenshot))
             return ToolResult.Fail(ToolNames.InspectVisual, "Screenshot não encontrado. Execute render_page primeiro e use o screenshot_path retornado.");
         var bytes = await File.ReadAllBytesAsync(screenshot, ct);
         var prompt = """
-Você é o inspetor visual do MIAU. Analise somente o screenshot fornecido.
+Você é o inspetor visual aterrado do MIAU. Analise somente o screenshot e as evidências fornecidas.
+NÃO INVENTE ELEMENTOS. Se pedir revisão, liste ao menos um problema concreto no formato PROBLEMA, EVIDÊNCIA e PRIORIDADE. Comentários genéricos não justificam revisão.
 Retorne um relatório curto e objetivo em português com:
 1. hierarquia visual;
 2. espaçamento/alinhamento;
@@ -73,7 +75,7 @@ Não invente elementos que não aparecem na imagem. Termine com VEREDITO: APROVA
         {
             model,
             stream = false,
-            messages = new[] { new { role = "user", content = prompt, images = new[] { Convert.ToBase64String(bytes) } } }
+            messages = new[] { new { role = "user", content = $"{prompt}\nVIEWPORT: {viewport}\nCRITÉRIOS: {criteria}\nESTRUTURA DETECTADA: {structure}", images = new[] { Convert.ToBase64String(bytes) } } }
         });
         try
         {
@@ -88,9 +90,10 @@ Não invente elementos que não aparecem na imagem. Termine com VEREDITO: APROVA
             var report = json.RootElement.GetProperty("message").GetProperty("content").GetString() ?? "";
             if (string.IsNullOrWhiteSpace(report)) return ToolResult.Fail(ToolNames.InspectVisual, "Modelo visual retornou relatório vazio.");
             var normalizedVerdict = NormalizeVisualVerdict(report);
-            var verdict = normalizedVerdict == "approved" ? "approved" : "review";
+            var actionable = HasActionableVisualProblem(report);
+            var verdict = normalizedVerdict == "approved" || !actionable ? "approved" : "review";
             return ToolResult.Ok(ToolNames.InspectVisual, report,
-                ("visual_inspection", "true"), ("visual_verdict", verdict), ("vision_model", model), ("screenshot_path", screenshot));
+                ("visual_inspection", "true"), ("visual_verdict", verdict), ("visual_actionable", actionable.ToString().ToLowerInvariant()), ("vision_model", model), ("screenshot_path", screenshot));
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         { return ToolResult.Fail(ToolNames.InspectVisual, "Tempo limite de 90s na inspeção visual."); }
@@ -113,7 +116,9 @@ Não invente elementos que não aparecem na imagem. Termine com VEREDITO: APROVA
         return value.StartsWith("aprov", StringComparison.OrdinalIgnoreCase) ? "approved" : "review";
     }
 
-    static async Task<ToolResult> RenderPage(string workspace, string relative, CancellationToken ct)
+    public static bool HasActionableVisualProblem(string report) => report.Contains("PROBLEMA", StringComparison.OrdinalIgnoreCase) && report.Contains("EVIDÊNCIA", StringComparison.OrdinalIgnoreCase) && report.Contains("PRIORIDADE", StringComparison.OrdinalIgnoreCase);
+
+    static async Task<ToolResult> RenderPage(string workspace, string relative, int width, int height, CancellationToken ct)
     {
         var page = SafePath(workspace, relative);
         if (!File.Exists(page)) return ToolResult.Fail(ToolNames.RenderPage, "Página não encontrada: " + relative);
@@ -131,7 +136,7 @@ Não invente elementos que não aparecem na imagem. Termine com VEREDITO: APROVA
         psi.ArgumentList.Add("--headless=new");
         psi.ArgumentList.Add("--disable-gpu");
         psi.ArgumentList.Add("--hide-scrollbars");
-        psi.ArgumentList.Add("--window-size=1440,1200");
+        psi.ArgumentList.Add($"--window-size={width},{height}");
         psi.ArgumentList.Add("--screenshot=" + screenshot);
         psi.ArgumentList.Add(new Uri(page).AbsoluteUri);
         using var process = Process.Start(psi) ?? throw new InvalidOperationException("Não foi possível iniciar o navegador.");
@@ -142,8 +147,8 @@ Não invente elementos que não aparecem na imagem. Termine com VEREDITO: APROVA
             return ToolResult.Fail(ToolNames.RenderPage, "Chrome não conseguiu renderizar a página.");
         var info = new FileInfo(screenshot);
         return ToolResult.Ok(ToolNames.RenderPage,
-            $"Página renderizada em 1440x1200. Screenshot: {screenshot} ({info.Length} bytes).",
-            ("visual_validation", "true"), ("screenshot_path", screenshot), ("rendered_path", relative));
+            $"Página renderizada em {width}x{height}. Screenshot: {screenshot} ({info.Length} bytes).",
+            ("visual_validation", "true"), ("screenshot_path", screenshot), ("screenshot_hash", ProgressTracker.ArtifactHash(await File.ReadAllBytesAsync(screenshot, ct))), ("viewport", $"{width}x{height}"), ("rendered_path", relative));
     }
 
     static async Task<ToolResult> FetchUrl(string value, CancellationToken ct)

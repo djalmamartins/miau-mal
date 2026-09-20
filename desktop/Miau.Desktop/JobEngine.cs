@@ -4,13 +4,15 @@ public enum JobPhase { Received, Understanding, Inspecting, Planning, Executing,
 
 public sealed record JobRequirements(bool RequiresChange, bool ReadOnly, bool RequiresValidation = true, bool RequiresVisualValidation = false);
 public sealed record JobEvidence(IReadOnlyCollection<string> FilesInspected, IReadOnlyCollection<string> FilesChanged,
-    bool HasGitDiff, bool ValidationRan, bool ValidationPassed, int Attempts, string? LastError, bool VisualValidationRan = false, bool VisualInspectionRan = false, bool VisualInspectionPassed = false);
+    bool HasGitDiff, bool ValidationRan, bool ValidationPassed, int Attempts, string? LastError, bool VisualValidationRan = false, bool VisualInspectionRan = false, bool VisualInspectionPassed = false,
+    IReadOnlyList<AcceptanceCriterion>? Criteria = null);
 
 public sealed class JobEngine
 {
     readonly HashSet<string> inspected = new(StringComparer.OrdinalIgnoreCase);
     readonly HashSet<string> changed = new(StringComparer.OrdinalIgnoreCase);
-    public JobEngine(JobRequirements requirements, int maxAttempts = 4) { Requirements = requirements; MaxAttempts = Math.Max(1, maxAttempts); }
+    public JobEngine(JobRequirements requirements, int maxAttempts = 4, AcceptancePlan? acceptance = null) { Requirements = requirements; MaxAttempts = Math.Max(1, maxAttempts); Acceptance = acceptance ?? new AcceptancePlan([]); }
+    public AcceptancePlan Acceptance { get; }
     public JobRequirements Requirements { get; }
     public int MaxAttempts { get; }
     public int Attempts { get; private set; }
@@ -24,7 +26,7 @@ public sealed class JobEngine
     public bool VisualInspectionPassed { get; private set; }
     public bool IsTerminal => Phase is JobPhase.Completed or JobPhase.Failed or JobPhase.Cancelled;
     public event Action<JobPhase, string>? StateChanged;
-    public JobEvidence Evidence => new(inspected.ToArray(), changed.ToArray(), HasGitDiff, ValidationRan, ValidationPassed, Attempts, LastError, VisualValidationRan, VisualInspectionRan, VisualInspectionPassed);
+    public JobEvidence Evidence => new(inspected.ToArray(), changed.ToArray(), HasGitDiff, ValidationRan, ValidationPassed, Attempts, LastError, VisualValidationRan, VisualInspectionRan, VisualInspectionPassed, Acceptance.Criteria);
 
     public void Start() => Transition(JobPhase.Understanding, "Entendendo a tarefa");
     public void BeginInspection() => Transition(JobPhase.Inspecting, "Inspecionando o projeto");
@@ -34,13 +36,13 @@ public sealed class JobEngine
         if (!result.Success) { LastError = result.Error ?? "Ferramenta retornou erro."; return; }
         if (result.Metadata.TryGetValue("inspected_path", out var inspectedPath) && !string.IsNullOrWhiteSpace(inspectedPath)) inspected.Add(inspectedPath);
         if (result.Metadata.TryGetValue("changed_path", out var changedPath) && !string.IsNullOrWhiteSpace(changedPath))
-        { changed.Add(changedPath); Transition(JobPhase.Executing, "Editando arquivos"); }
-        if (result.Metadata.TryGetValue("visual_validation", out var visual) && visual == "true") VisualValidationRan = true;
-        if (result.Metadata.TryGetValue("visual_inspection", out var visualInspected) && visualInspected == "true") { VisualInspectionRan = true; VisualInspectionPassed = result.Metadata.GetValueOrDefault("visual_verdict") == "approved"; }
+        { changed.Add(changedPath); Acceptance.Satisfy("change", changedPath); Transition(JobPhase.Executing, "Editando arquivos"); }
+        if (result.Metadata.TryGetValue("visual_validation", out var visual) && visual == "true") { VisualValidationRan = true; Acceptance.Satisfy(result.Metadata.GetValueOrDefault("viewport") == "390x844" ? "mobile-render" : "desktop-render", result.Metadata.GetValueOrDefault("screenshot_path", "render")); }
+        if (result.Metadata.TryGetValue("visual_inspection", out var visualInspected) && visualInspected == "true") { VisualInspectionRan = true; VisualInspectionPassed = result.Metadata.GetValueOrDefault("visual_verdict") == "approved"; if (VisualInspectionPassed) Acceptance.Satisfy("visual-inspection", result.Output); }
         if (result.Tool == ToolNames.GitDiff)
         { HasGitDiff = result.Metadata.TryGetValue("has_changes", out var value) && value == "true"; Transition(JobPhase.Verifying, "Verificando alterações"); }
         if (result.Metadata.TryGetValue("validation", out var validation) && validation == "true")
-        { ValidationRan = true; ValidationPassed = true; Transition(JobPhase.Testing, "Testando o projeto"); }
+        { ValidationRan = true; ValidationPassed = true; Acceptance.Satisfy("validation", result.Output); Transition(JobPhase.Testing, "Testando o projeto"); }
         LastError = null;
     }
     public bool RecordFailure(string error)
@@ -63,6 +65,7 @@ public sealed class JobEngine
             if (Requirements.RequiresVisualValidation && !VisualInspectionRan) { reason = "O screenshot ainda não foi analisado pelo inspetor visual."; return false; }
             if (Requirements.RequiresVisualValidation && !VisualInspectionPassed) { reason = "O inspetor visual pediu revisão da interface; corrija os problemas e faça nova renderização e inspeção."; return false; }
         }
+        if (!Acceptance.RequiredSatisfied) { reason = "Critérios obrigatórios pendentes: " + Acceptance.PendingSummary(); return false; }
         reason = ""; Transition(JobPhase.Completed, "Concluído"); return true;
     }
     public void Fail(string reason) { LastError = reason; Transition(JobPhase.Failed, reason); }

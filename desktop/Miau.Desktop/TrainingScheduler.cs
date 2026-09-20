@@ -18,6 +18,8 @@ public sealed class TrainingScheduler
     public async Task<TrainingCycleResult> RunCycleAsync(string root, TrainingSchedule schedule, CancellationToken ct, Action<string>? progress = null)
     {
         if (!schedule.Enabled) return new(DateTimeOffset.Now, 0, 0, 0);
+        if (!ExecutionCoordination.Shared.TryAcquire(root, ExecutionKind.Training, out var coordination)) { progress?.Invoke("Treino aguardando: existe uma execução interativa ativa."); return new(DateTimeOffset.Now, 0, 0, 0); }
+        using var coordinationLease = coordination;
         var started = DateTimeOffset.Now; var attempted = 0; var completed = 0; var failed = 0; var rejected = 0;
         foreach (var task in Tasks().Take(Math.Clamp(schedule.MaxTasksPerCycle, 1, 10)))
         {
@@ -27,7 +29,7 @@ public sealed class TrainingScheduler
             {
                 await SeedAsync(temp, task.Id, ct);
                 progress?.Invoke($"Treino {task.Id}: {task.Title}");
-                await agent.RunAsync(temp, task.Prompt, ct, x => progress?.Invoke(x));
+                await agent.RunAsync(temp, task.Prompt, ct, x => progress?.Invoke(x), "training");
                 if (await VerifyAsync(temp, task.Id, ct)) completed++;
                 else { rejected++; progress?.Invoke($"Treino {task.Id} rejeitado: resultado não corresponde ao objetivo controlado."); }
             }

@@ -39,7 +39,7 @@ public sealed class SelfRepairService
             var baseCommit = (await Run(temp, "git", ["rev-parse", "HEAD"], ct)).Trim();
             var manifest = Path.Combine(temp, Path.GetRelativePath(sourceRoot, benchmarkManifest));
             var before = await BenchmarkScore(agent, manifest, ct, progress, "antes");
-            await agent.RunAsync(temp, candidate.Prompt, ct, x => progress?.Invoke(x));
+            await agent.RunAsync(temp, candidate.Prompt, ct, x => progress?.Invoke(x), "self_repair");
             var build = await RunCheck(temp, "dotnet", ["build", "desktop/Miau.Desktop/Miau.Desktop.csproj"], ct);
             var tests = build && await RunCheck(temp, "dotnet", ["test", "desktop/Miau.Desktop.Tests/Miau.Desktop.Tests.csproj", "--no-restore"], ct);
             var after = build && tests ? await BenchmarkScore(agent, manifest, ct, progress, "depois") : 0;

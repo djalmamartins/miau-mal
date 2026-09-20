@@ -11,9 +11,11 @@ public sealed class AgentOrchestrator
     { this.model = model; this.tools = tools; this.dataset = dataset; this.maxSteps = maxSteps; this.prompts = prompts ?? new VersionedPromptProvider(); editPolicy = new(); failures = new(); harvester = new(); }
 
     public async Task<AgentRunResult> RunAsync(string workspace, string task, JobRequirements requirements, CancellationToken ct,
-        Action<JobPhase, string>? progress = null, Action<ExecutionEvent>? eventSink = null)
+        Action<JobPhase, string>? progress = null, Action<ExecutionEvent>? eventSink = null, string origin = "interactive")
     {
-        var engine = new JobEngine(requirements); var trace = new List<TaskTraceEvent>(); var plan = new List<string>(); var replaceFailures = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase); string? lastResponseKey = null; string? lastProgressKey = null; var consecutiveSameResponse = 0; var turns = new List<ModelTurn> { new("user", task) }; var jobWatch = Stopwatch.StartNew();
+        var acceptance = AcceptancePlanner.Build(task, requirements); var engine = new JobEngine(requirements, acceptance: acceptance); var tracker = new ProgressTracker(); var visualRevisions = new VisualRevisionPolicy();
+        var workspaceBaseline = Directory.Exists(workspace) ? WorkspaceBaseline.Capture(workspace) : null;
+        var trace = new List<TaskTraceEvent>(); var plan = new List<string>(); var replaceFailures = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase); var consecutiveTimeouts = 0; var turns = new List<ModelTurn> { new("user", task) }; var jobWatch = Stopwatch.StartNew();
         (MiauAction Action, ToolResult Result)? pendingRecovery = null;
         void Emit(ExecutionEventType type, string description, string? target = null, TimeSpan? duration = null, bool? success = null, IReadOnlyDictionary<string, string>? metadata = null, string? details = null)
             => eventSink?.Invoke(new(DateTimeOffset.Now, type, engine.Phase, description, target, duration, success, metadata, details));
@@ -31,21 +33,14 @@ public sealed class AgentOrchestrator
                 ct.ThrowIfCancellationRequested(); var watch = Stopwatch.StartNew();
                 Emit(ExecutionEventType.ModelRequestStarted, "MIAU1-Coder processando", model.ModelId);
                 string raw;
-                try { raw = await model.CompleteStepAsync(new(prompts.GetSystemPrompt(workspace, requirements), turns), ct); }
-                catch (TimeoutException ex) { engine.Fail(ex.Message); Emit(ExecutionEventType.JobFailed, "Ollama sem resposta", model.ModelId, watch.Elapsed, false, details: ex.Message); break; }
-                Emit(ExecutionEventType.ModelRequestCompleted, "Resposta estruturada recebida", model.ModelId, watch.Elapsed, true);
-                var responseKey = raw.Trim();
-                var progressKey = ProgressKey(engine.Evidence);
-                if (responseKey == lastResponseKey && progressKey == lastProgressKey) consecutiveSameResponse++;
-                else consecutiveSameResponse = 1;
-                lastResponseKey = responseKey; lastProgressKey = progressKey;
-                if (consecutiveSameResponse >= 3)
+                try { raw = await model.CompleteStepAsync(new(prompts.GetSystemPrompt(workspace, requirements), turns), ct); consecutiveTimeouts = 0; }
+                catch (TimeoutException ex)
                 {
-                    var loop = "Loop detectado: o modelo repetiu a mesma resposta estruturada 3 vezes sem nova evidência.";
-                    engine.Fail(loop);
-                    Emit(ExecutionEventType.JobFailed, loop, model.ModelId, success: false);
-                    break;
+                    consecutiveTimeouts++; Emit(ExecutionEventType.ModelTimeout, $"Timeout {consecutiveTimeouts}/2 — retomando", model.ModelId, watch.Elapsed, false, details: ex.Message);
+                    if (consecutiveTimeouts >= 2) { engine.Fail("O modelo excedeu o tempo limite duas vezes consecutivas; estado da tarefa preservado."); break; }
+                    turns = CompactContext(turns, plan, engine.Evidence, acceptance); continue;
                 }
+                Emit(ExecutionEventType.ModelRequestCompleted, "Resposta estruturada recebida", model.ModelId, watch.Elapsed, true);
 
                 if (!BrainResponse.TryParse(raw, out var response, out var parseError))
                 {
@@ -62,6 +57,15 @@ public sealed class AgentOrchestrator
                 }
                 if (response.Type == "action")
                 {
+                    var stagnation = tracker.ObserveAction(response.Action!);
+                    if (stagnation.Detected)
+                    {
+                        Emit(ExecutionEventType.StagnationDetected, stagnation.Message, stagnation.Cycle, success: false, metadata: new Dictionary<string,string> { ["level"] = stagnation.Level.ToString() });
+                        if (stagnation.Level >= 4) { engine.Fail("Estagnação persistente após recuperação progressiva: " + stagnation.Cycle); break; }
+                        var instruction = stagnation.Level switch { 1 => "Não repita o ciclo; escolha uma ação que gere nova evidência.", 2 => "A estratégia repetida está temporariamente bloqueada. Use outra ferramenta ou arquivo relevante.", _ => "Replaneje agora usando critérios pendentes e evidências atuais; responda com type=plan." };
+                        Emit(ExecutionEventType.RecoveryStarted, $"Recuperação de estagnação nível {stagnation.Level}", success: true, details: instruction);
+                        turns.Add(new("assistant", raw)); turns.Add(new("user", $"ESTAGNAÇÃO DETECTADA\nCiclo: {stagnation.Cycle}\n{instruction}\nCritérios pendentes: {acceptance.PendingSummary()}")); continue;
+                    }
                     trace.Add(new(DateTimeOffset.Now, "action_requested", response.Action!.Action, true, string.Join("; ", response.Action.Arguments.Select(x => $"{x.Key}={x.Value}"))));
 
                     // Broad UI/site rewrites should not degrade into a long sequence of tiny replacements.
@@ -96,18 +100,32 @@ public sealed class AgentOrchestrator
                         var cssPath = Path.Combine(Path.GetDirectoryName(htmlPath) ?? "", "style.css").Replace('\\', '/');
                         var htmlCheck = await tools.ExecuteAsync(workspace, new(ToolNames.ReadFile, new() { ["path"] = htmlPath }, "Verificação determinística dos critérios visuais."), true, ct);
                         var cssCheck = await tools.ExecuteAsync(workspace, new(ToolNames.ReadFile, new() { ["path"] = cssPath }, "Verificação determinística da responsividade."), true, ct);
-                        var acceptance = VisualAcceptance.Evaluate(task, htmlCheck.Success ? htmlCheck.Output : "", cssCheck.Success ? cssCheck.Output : "");
-                        if (!acceptance.Passed)
+                        var visualAcceptance = VisualAcceptance.Evaluate(task, htmlCheck.Success ? htmlCheck.Output : "", cssCheck.Success ? cssCheck.Output : "");
+                        if (!visualAcceptance.Passed)
                         {
-                            var blocked = ToolResult.Fail(ToolNames.RenderPage, "Critérios de aceitação ainda não atendidos: " + string.Join(", ", acceptance.Missing));
+                            var blocked = ToolResult.Fail(ToolNames.RenderPage, "Critérios de aceitação ainda não atendidos: " + string.Join(", ", visualAcceptance.Missing));
                             trace.Add(new(DateTimeOffset.Now, "acceptance", ToolNames.RenderPage, false, blocked.Error!));
                             turns.Add(new("assistant", raw));
                             turns.Add(new("user", $"RENDERIZAÇÃO BLOQUEADA: {blocked.Error}. Implemente essas entregas concretas antes de renderizar ou inspecionar visualmente."));
                             Emit(ExecutionEventType.RetryStarted, "Critérios de aceitação pendentes", htmlPath, success: false, details: blocked.Error);
                             continue;
                         }
+                        foreach (var criterion in acceptance.Criteria.Where(x => x.Type == AcceptanceType.Structural))
+                            if (acceptance.Satisfy(criterion.Id, $"Estrutura comprovada em {htmlPath}"))
+                            {
+                                tracker.Record(ProgressKind.Criterion, criterion.Id);
+                                Emit(ExecutionEventType.ProgressRecorded, $"Novo critério satisfeito: {criterion.Id}", htmlPath, success: true);
+                            }
                     }
                     var result = await ExecuteTool(workspace, response.Action!, requirements.ReadOnly, engine, trace, Emit, ct);
+                    if (result.Success && response.Action.Action == ToolNames.InspectVisual && result.Metadata.GetValueOrDefault("visual_verdict") == "review")
+                    {
+                        var screenshot = response.Action.Arguments.GetValueOrDefault("screenshot_path", "");
+                        var hash = File.Exists(screenshot) ? ProgressTracker.ArtifactHash(await File.ReadAllBytesAsync(screenshot, ct)) : "missing";
+                        var criteriaState = string.Join('|', acceptance.Criteria.Select(x => $"{x.Id}:{x.Status}"));
+                        if (!visualRevisions.CanRevise(hash, criteriaState, out var revisionReason)) { engine.Fail(revisionReason); Emit(ExecutionEventType.JobFailed, revisionReason, success: false); break; }
+                    }
+                    if (RecordProgress(tracker, response.Action, result, acceptance)) Emit(ExecutionEventType.ProgressRecorded, "Nova evidência de progresso", response.Action.Action, success: true, metadata: new Dictionary<string,string> { ["progress_version"] = tracker.Snapshot.Version.ToString() });
                     editPolicy.Observe(response.Action, result);
                     if (!result.Success)
                     {
@@ -148,6 +166,7 @@ public sealed class AgentOrchestrator
                 }
 
                 var final = response.Final!;
+                Emit(ExecutionEventType.CriteriaUpdated, $"Critérios {acceptance.SatisfiedCount}/{acceptance.RequiredCount} atendidos", success: acceptance.RequiredSatisfied);
                 if (requirements.RequiresChange)
                 {
                     var diff = await ExecuteTool(workspace, new(ToolNames.GitDiff, [], "Verificação obrigatória do motor."), true, engine, trace, Emit, ct);
@@ -167,7 +186,8 @@ public sealed class AgentOrchestrator
                 }
                 if (requirements.RequiresChange)
                 {
-                    var actual = engine.Evidence.FilesChanged.Where(x => x != "(patch)").OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray();
+                    var producedNow = workspaceBaseline?.ChangesProducedNow(workspace);
+                    var actual = (producedNow ?? engine.Evidence.FilesChanged.Where(x => x != "(patch)").ToArray()).OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray();
                     var declared = final.FilesChanged.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray();
                     if (actual.Length == 0)
                     {
@@ -216,7 +236,7 @@ public sealed class AgentOrchestrator
                 var evidence = engine.Evidence;
                 var provenFiles = evidence.FilesChanged.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray();
                 var finalSummary = BuildVerifiedSummary(final.Summary, provenFiles, evidence);
-                var record = harvester.Harvest(workspace, model.ModelId, task, plan, trace, evidence, finalSummary, jobWatch.Elapsed);
+                var record = harvester.Harvest(workspace, model.ModelId, task, plan, trace, evidence, finalSummary, jobWatch.Elapsed, origin);
                 await dataset.SaveCompletedAsync(workspace, record, ct);
                 Emit(ExecutionEventType.JobCompleted, "Tarefa concluída", duration: null, success: true, metadata: new Dictionary<string, string> { ["files_changed"] = evidence.FilesChanged.Count.ToString() });
                 return new(finalSummary, engine.Phase, evidence);
@@ -228,6 +248,24 @@ public sealed class AgentOrchestrator
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         { engine.Cancel(); Emit(ExecutionEventType.JobCancelled, "Tarefa cancelada pelo usuário", success: false); throw; }
+    }
+
+    static bool RecordProgress(ProgressTracker tracker, MiauAction action, ToolResult result, AcceptancePlan acceptance)
+    {
+        if (!result.Success) return false;
+        if (result.Metadata.TryGetValue("changed_path", out var changed)) return tracker.Record(ProgressKind.Change, changed + ":" + result.Output);
+        if (result.Metadata.TryGetValue("inspected_path", out var inspected)) return tracker.Record(ProgressKind.Inspection, inspected);
+        if (action.Action == ToolNames.GitDiff) return tracker.Record(ProgressKind.Diff, result.Output);
+        if (result.Metadata.ContainsKey("validation")) return tracker.Record(ProgressKind.Validation, result.Output);
+        if (result.Metadata.TryGetValue("screenshot_hash", out var hash)) return tracker.Record(ProgressKind.Visual, hash);
+        return false;
+    }
+
+    static List<ModelTurn> CompactContext(List<ModelTurn> turns, IReadOnlyList<string> plan, JobEvidence evidence, AcceptancePlan acceptance)
+    {
+        var recent = turns.TakeLast(6).ToList();
+        recent.Insert(0, new("user", $"RETOMADA APÓS TIMEOUT. Preserve o trabalho atual. Plano: {string.Join(" | ", plan)}. Arquivos inspecionados: {string.Join(", ", evidence.FilesInspected)}. Arquivos alterados: {string.Join(", ", evidence.FilesChanged)}. Critérios pendentes: {acceptance.PendingSummary()}. Não reinicie a tarefa."));
+        return recent;
     }
 
     public static bool HasBroadVisualEvidence(JobEvidence evidence)

@@ -22,6 +22,7 @@ public sealed record TrainingRecord(
     public double QualityScore { get; init; }
     public IReadOnlyList<string> QualityReasons { get; init; } = [];
     public string? RecoveryStrategy { get; init; }
+    public string Origin { get; init; } = "interactive";
 }
 
 public interface IDatasetService { Task SaveCompletedAsync(string workspace, TrainingRecord record, CancellationToken ct); }

@@ -10,20 +10,20 @@ public sealed class AgentService
     public TimeSpan ModelTimeout { get; set; } = TimeSpan.FromSeconds(90);
     public AgentRunResult? LastRunResult { get; private set; }
 
-    public async Task<string> RunAsync(string root, string prompt, CancellationToken ct, Action<string> progress)
-        => await RunCoreAsync(root, prompt, ct, ev => progress(ev.Description + (string.IsNullOrWhiteSpace(ev.Target) ? "" : $": {ev.Target}")));
+    public async Task<string> RunAsync(string root, string prompt, CancellationToken ct, Action<string> progress, string origin = "interactive")
+        => await RunCoreAsync(root, prompt, ct, ev => progress(ev.Description + (string.IsNullOrWhiteSpace(ev.Target) ? "" : $": {ev.Target}")), origin);
 
     public Task<string> RunWithEventsAsync(string root, string prompt, CancellationToken ct, Action<ExecutionEvent> events)
-        => RunCoreAsync(root, prompt, ct, events);
+        => RunCoreAsync(root, prompt, ct, events, "interactive");
 
-    async Task<string> RunCoreAsync(string root, string prompt, CancellationToken ct, Action<ExecutionEvent> events)
+    async Task<string> RunCoreAsync(string root, string prompt, CancellationToken ct, Action<ExecutionEvent> events, string origin)
     {
         var requirements = Classify(prompt);
         var adapter = new OllamaModelAdapter(Model, requestTimeout: ModelTimeout);
         var orchestrator = new AgentOrchestrator(adapter, tools, new DatasetService());
         try
         {
-            var result = await orchestrator.RunAsync(root, prompt, requirements, ct, eventSink: events); LastRunResult = result;
+            var result = await orchestrator.RunAsync(root, prompt, requirements, ct, eventSink: events, origin: origin); LastRunResult = result;
             if (result.Phase != JobPhase.Completed) throw new InvalidOperationException(result.Summary);
             var evidence = result.Evidence;
             var files = evidence.FilesChanged.Count == 0 ? "nenhum" : string.Join(", ", evidence.FilesChanged);

@@ -94,7 +94,7 @@ public sealed class AgentOrchestratorTests
     public void VisualAcceptancePassesWhenRequestedEvidenceExists()
     {
         var task = "site com header, hero, produtos em destaque, seção editorial, chamadas, footer completo e responsivo";
-        var html = "<header></header><section class=\"hero\"></section><section class=\"products\"></section><section class=\"editorial\"></section><a class=\"cta\">Ver menu</a><footer></footer>";
+        var html = "<meta name=\"viewport\" content=\"width=device-width\"><header></header><section class=\"hero\"></section><section class=\"products\"></section><section class=\"editorial\"></section><a class=\"cta\">Ver menu</a><footer></footer>";
         var result = VisualAcceptance.Evaluate(task, html, "@media (max-width: 700px) { body { display:block; } }");
         Assert.True(result.Passed);
         Assert.Empty(result.Missing);

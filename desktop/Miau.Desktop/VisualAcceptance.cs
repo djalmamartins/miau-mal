@@ -21,8 +21,11 @@ public static class VisualAcceptance
         Require(t, h, missing, new[] { "chamada", "cta", "call to action" }, new[] { "class=\"cta", "class='cta", "<button", "call-to-action" }, "chamadas/CTA");
         Require(t, h, missing, new[] { "footer", "rodapé", "rodape" }, "<footer", "footer");
 
-        if (t.Contains("responsiv") && !(c.Contains("@media") || c.Contains("@container")))
-            missing.Add("responsividade CSS (@media/@container)");
+        if (t.Contains("responsiv"))
+        {
+            if (!h.Contains("name=\"viewport\"") && !h.Contains("name='viewport'")) missing.Add("viewport meta");
+            if (!(c.Contains("@media") || c.Contains("@container"))) missing.Add("responsividade CSS (@media/@container)");
+        }
 
         return new(missing.Count == 0, missing);
     }

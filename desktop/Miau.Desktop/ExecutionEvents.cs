@@ -5,6 +5,7 @@ public enum ExecutionEventType
     JobStarted, PhaseChanged, ModelRequestStarted, ModelRequestCompleted, ToolStarted, ToolCompleted, ToolFailed,
     FileRead, FileCreated, FileChanged, CommandStarted, CommandCompleted, CommandFailed, DiffStarted, DiffCompleted,
     BuildStarted, BuildCompleted, BuildFailed, TestsStarted, TestsCompleted, TestsFailed, RetryStarted,
+    CriteriaUpdated, ProgressRecorded, StagnationDetected, RecoveryStarted, ModelTimeout,
     JobCompleted, JobFailed, JobCancelled
 }
 
