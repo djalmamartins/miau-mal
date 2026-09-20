@@ -7,6 +7,7 @@ public sealed class AppState
     public string? LastWorkspace { get; set; }
     public List<string> RecentProjects { get; set; } = [];
     public string Model { get; set; } = "qwen2.5-coder:7b";
+    public string? VisionModel { get; set; }
     public string AgentId { get; set; } = $"{Environment.MachineName}-{(OperatingSystem.IsMacOS() ? "MAC" : OperatingSystem.IsWindows() ? "WIN" : "LOCAL")}";
     public bool AutonomousMode { get; set; }
     public int NextTaskDelaySeconds { get; set; } = 120;

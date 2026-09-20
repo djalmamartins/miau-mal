@@ -43,6 +43,9 @@ public partial class MainWindow : Window
         InitializeComponent();
         LoadBrand();
         agent.Model = state.Model;
+        agent.VisionModel = state.VisionModel;
+        VisionModelBox.Text = state.VisionModel;
+        CodingModelText.Text = $"Coding: {state.Model}";
         StatusText.Text = $"● {state.Model} (local)";
         AgentIdText.Text = state.AgentId;
         runner.StatusChanged += s => Dispatcher.UIThread.Post(() => { CurrentJobText.Text = s; Activity(s); });
@@ -53,6 +56,25 @@ public partial class MainWindow : Window
         SelfRepairToggle.IsChecked = state.SelfRepairEnabled;
         ConfigureTrainingTimer();
         RestoreWorkspace();
+        _ = RefreshVisionStatus();
+    }
+
+    async Task RefreshVisionStatus()
+    {
+        try
+        {
+            var models = await new OllamaCapabilityDiscovery().DiscoverAsync(CancellationToken.None);
+            var selected = string.IsNullOrWhiteSpace(state.VisionModel) ? models.FirstOrDefault(x => x.Capability == ModelCapability.Vision) : models.FirstOrDefault(x => x.Name.Equals(state.VisionModel, StringComparison.OrdinalIgnoreCase));
+            VisionStatusText.Text = selected?.Capability == ModelCapability.Vision ? $"Vision: {selected.Name} · ready" : "Vision: unavailable";
+            VisionStatusText.Foreground = new SolidColorBrush(Color.Parse(selected?.Capability == ModelCapability.Vision ? "#55D978" : "#FF766F"));
+        }
+        catch { VisionStatusText.Text = "Vision: unavailable"; }
+    }
+
+    async void VisionModelChanged(object? sender, RoutedEventArgs e)
+    {
+        state.VisionModel = string.IsNullOrWhiteSpace(VisionModelBox.Text) ? null : VisionModelBox.Text.Trim();
+        agent.VisionModel = state.VisionModel; state.Save(); await RefreshVisionStatus();
     }
 
     async void RestoreWorkspace()
@@ -582,7 +604,7 @@ public partial class MainWindow : Window
     async void RunDiagnostics(object? sender, RoutedEventArgs e)
     {
         Activity("MIAU Diagnostics");
-        foreach (var item in await diagnostics.RunAsync(workspace, agent.Model, CancellationToken.None))
+        foreach (var item in await diagnostics.RunAsync(workspace, agent.Model, agent.VisionModel, CancellationToken.None))
             Activity($"{(item.Success ? "✓" : "✕")} {item.Name}: {item.Detail}");
     }
 

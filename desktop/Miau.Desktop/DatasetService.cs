@@ -25,6 +25,7 @@ public sealed record TrainingRecord(
     public string Origin { get; init; } = "interactive";
     public bool HumanIntervention { get; init; }
     public bool FinalBuildPassed { get; init; }
+    public IReadOnlyList<VisualEvidence> VisualEvidence { get; init; } = [];
 }
 
 public interface IDatasetService { Task SaveCompletedAsync(string workspace, TrainingRecord record, CancellationToken ct); }

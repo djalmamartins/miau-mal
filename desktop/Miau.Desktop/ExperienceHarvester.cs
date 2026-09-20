@@ -15,7 +15,8 @@ public sealed class ExperienceHarvester
         {
             Duration = duration, Success = true,
             RecoveryStrategy = trace.Any(x => x.Kind == "recovery_success") ? "NoEffectiveChange diagnosticado; contexto compactado; estratégia diferente produziu task delta" : evidence.Attempts > 0 ? "reinspeção e mudança de ação após falha" : null,
-            Origin = origin, HumanIntervention = false, FinalBuildPassed = !evidence.ValidationRan || evidence.ValidationPassed
+            Origin = origin, HumanIntervention = false, FinalBuildPassed = !evidence.ValidationRan || evidence.ValidationPassed,
+            VisualEvidence = evidence.VisualEvidence ?? []
         };
     }
 }
