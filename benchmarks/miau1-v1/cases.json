@@ -1,0 +1,37 @@
+[
+  {
+    "id": "01-simple-edit",
+    "task": "Em greeting.html troque exatamente <h1>Hello</h1> por <h1>Olá</h1>. Altere somente greeting.html.",
+    "files": { "greeting.html": "<h1>Hello</h1>\n" },
+    "expectedChangedFiles": ["greeting.html"],
+    "expectedContent": { "greeting.html": "<h1>Olá</h1>" }
+  },
+  {
+    "id": "02-create-file",
+    "task": "Crie somente about.html contendo <h1>Sobre</h1> e um parágrafo.",
+    "files": { "index.html": "<h1>Home</h1>\n" },
+    "expectedChangedFiles": ["about.html"],
+    "expectedContent": { "about.html": "<h1>Sobre</h1>" }
+  },
+  {
+    "id": "03-multi-file",
+    "task": "Adicione class=highlight ao h1 de index.html e estilize .highlight com font-weight: bold em style.css. Altere somente esses dois arquivos.",
+    "files": { "index.html": "<h1>Hello</h1>\n", "style.css": "body {}\n" },
+    "expectedChangedFiles": ["index.html", "style.css"],
+    "expectedContent": { "index.html": "highlight", "style.css": ".highlight" }
+  },
+  {
+    "id": "04-no-effective-change-recovery",
+    "task": "Garanta que recovery.txt contenha target=ready e crie somente recovery-proof.txt contendo RECOVERED. Se uma gravação for idêntica, reconheça e mude de estratégia.",
+    "files": { "recovery.txt": "target=ready\n" },
+    "expectedChangedFiles": ["recovery-proof.txt"],
+    "expectedContent": { "recovery-proof.txt": "RECOVERED" }
+  },
+  {
+    "id": "05-fix-build",
+    "task": "Corrija syntax.py para ter sintaxe Python válida e imprimir MIAU build OK. Altere somente syntax.py.",
+    "files": { "syntax.py": "print('MIAU build OK'\n" },
+    "expectedChangedFiles": ["syntax.py"],
+    "expectedContent": { "syntax.py": "print('MIAU build OK')" }
+  }
+]

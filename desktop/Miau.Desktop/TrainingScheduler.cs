@@ -2,8 +2,10 @@ using System.Text.Json;
 
 namespace Miau.Desktop;
 
-public sealed record TrainingSchedule(bool Enabled = false, int IntervalHours = 24, int MaxTasksPerCycle = 3);
+public sealed record TrainingSchedule(bool Enabled = false, int IntervalHours = 24, int MaxTasksPerCycle = 3, int RepetitionsPerScenario = 2, int MaximumLevel = 8);
 public sealed record TrainingCycleResult(DateTimeOffset StartedAt, int Attempted, int Completed, int Failed, int Rejected = 0);
+public sealed record TrainingScenarioResult(DateTimeOffset At, int Level, string Scenario, int Repetition, bool Passed, double DurationSeconds,
+    int Actions, int EffectiveChanges, int NoEffectiveChanges, int Recoveries, bool HumanIntervention, bool Validation, bool OutOfScopeChanges, string? Failure);
 
 public sealed class TrainingScheduler
 {
@@ -21,30 +23,41 @@ public sealed class TrainingScheduler
         if (!ExecutionCoordination.Shared.TryAcquire(root, ExecutionKind.Training, out var coordination)) { progress?.Invoke("Treino aguardando: existe uma execução interativa ativa."); return new(DateTimeOffset.Now, 0, 0, 0); }
         using var coordinationLease = coordination;
         var started = DateTimeOffset.Now; var attempted = 0; var completed = 0; var failed = 0; var rejected = 0;
-        foreach (var task in Tasks().Take(Math.Clamp(schedule.MaxTasksPerCycle, 1, 10)))
+        var scenarios = Tasks().Where(x => x.Level <= Math.Clamp(schedule.MaximumLevel, 1, 8)).Take(Math.Clamp(schedule.MaxTasksPerCycle, 1, 8));
+        foreach (var runCase in scenarios.SelectMany(task => Enumerable.Range(1, Math.Clamp(schedule.RepetitionsPerScenario, 2, 5)).Select(repetition => (task, repetition))))
         {
+            var task = runCase.task; var repetition = runCase.repetition; var watch = System.Diagnostics.Stopwatch.StartNew(); AgentRunResult? agentRun = null; var passed = false; string? failure = null;
             ct.ThrowIfCancellationRequested(); attempted++;
             var temp = Path.Combine(Path.GetTempPath(), "miau-training", Guid.NewGuid().ToString("N")); Directory.CreateDirectory(temp);
             try
             {
                 await SeedAsync(temp, task.Id, ct);
-                progress?.Invoke($"Treino {task.Id}: {task.Title}");
+                progress?.Invoke($"Treino nível {task.Level} · {task.Id} · repetição {repetition}: {task.Title}");
                 var deferred = new DeferredDatasetService();
-                var run = await agent.RunForTrainingAsync(temp, task.Prompt, ct, x => progress?.Invoke(x), deferred);
-                if (run.Phase == JobPhase.Completed && await VerifyAsync(temp, task.Id, ct))
+                agentRun = await agent.RunForTrainingAsync(temp, task.Prompt, ct, x => progress?.Invoke(x), deferred);
+                if (agentRun.Phase == JobPhase.Completed && await VerifyAsync(temp, task.Id, ct))
                 {
-                    await deferred.CommitAsync(new DatasetService(), temp, ct); completed++;
+                    await deferred.CommitAsync(new DatasetService(), temp, ct); completed++; passed = true;
                 }
                 else
                 {
+                    failure = agentRun.Summary;
                     rejected++;
                     await new DatasetService().SaveRejectedAsync(task.Prompt, agent.Model, $"Treino controlado '{task.Id}' não passou na verificação externa.", ct);
                     progress?.Invoke($"Treino {task.Id} rejeitado: resultado não corresponde ao objetivo controlado.");
                 }
             }
             catch (OperationCanceledException) { throw; }
-            catch (Exception ex) { failed++; progress?.Invoke($"Treino {task.Id} falhou: {DatasetService.Redact(ex.Message)}"); }
-            finally { try { Directory.Delete(temp, true); } catch { } }
+            catch (Exception ex) { failed++; failure = DatasetService.Redact(ex.Message); progress?.Invoke($"Treino {task.Id} falhou: {failure}"); }
+            finally
+            {
+                var metrics = agentRun?.Metrics ?? new();
+                var observation = new TrainingScenarioResult(DateTimeOffset.UtcNow, task.Level, task.Id, repetition, passed, watch.Elapsed.TotalSeconds,
+                    metrics.Actions, metrics.EffectiveChanges, metrics.NoEffectiveChangeCount, metrics.RecoveryCount, metrics.HumanIntervention, agentRun?.Evidence.ValidationPassed == true, false, failure);
+                var scenarioDir = Path.Combine(appData, "training"); Directory.CreateDirectory(scenarioDir);
+                await File.AppendAllTextAsync(Path.Combine(scenarioDir, "scenarios-v1.jsonl"), JsonSerializer.Serialize(observation) + Environment.NewLine, ct);
+                try { Directory.Delete(temp, true); } catch { }
+            }
         }
         var result = new TrainingCycleResult(started, attempted, completed, failed, rejected);
         var dir = Path.Combine(appData, "training"); Directory.CreateDirectory(dir);
@@ -52,14 +65,16 @@ public sealed class TrainingScheduler
         return result;
     }
 
-    static IEnumerable<(string Id,string Title,string Prompt)> Tasks()
+    static IEnumerable<(int Level,string Id,string Title,string Prompt)> Tasks()
     {
-        yield return ("edit", "Edição controlada", "Altere somente README.md acrescentando ao final uma linha exatamente: MIAU training edit OK");
-        yield return ("create", "Criação controlada", "Crie somente training-result.txt contendo exatamente MIAU training create OK");
-        yield return ("recover", "Recuperação controlada", "No arquivo config.txt altere exatamente mode=old para mode=new. Não altere outros arquivos.");
-        yield return ("delete", "Remoção segura", "Remova somente obsolete.txt. Não altere nenhum outro arquivo.");
-        yield return ("multi", "Alteração multi-arquivo", "Altere app.txt para conter app=v2 e test.txt para conter test=v2. Não altere outros arquivos.");
-        yield return ("scope", "Respeito de escopo", "Altere somente allowed.txt para conter allowed=v2. Não altere protected.txt.");
+        yield return (1, "edit", "Alteração simples", "Em greeting.html troque exatamente <h1>Hello</h1> por <h1>Olá</h1>. Altere somente esse arquivo.");
+        yield return (2, "create", "Criação", "Crie somente about.html com um título Sobre e um parágrafo de apresentação.");
+        yield return (3, "multi", "Alteração coerente multi-arquivo", "Atualize index.html para usar class=highlight e style.css para estilizar .highlight com font-weight: bold. Altere somente esses dois arquivos.");
+        yield return (4, "recover", "Recovery após NoEffectiveChange", "Garanta target=ready em recovery.txt e produza uma mudança efetiva criando recovery-proof.txt com RECOVERED. Se uma gravação idêntica ocorrer, mude de estratégia. Altere somente esses dois arquivos.");
+        yield return (5, "build", "Correção de build controlada", "Corrija syntax.py para ser Python válido e imprimir MIAU build OK. Altere somente syntax.py.");
+        yield return (6, "visual", "Tarefa visual simples", "Melhore o componente card em index.html e style.css, mantenha responsividade, renderize desktop e mobile e faça inspeção visual.");
+        yield return (7, "landing", "Redesign pequeno", "Reformule a landing page mínima em index.html e style.css com header, hero, CTA e footer responsivos; renderize desktop/mobile e inspecione.");
+        yield return (8, "cafeteria", "Cafeteria completa", "Melhore significativamente o site de cafeteria em index.html e style.css com header, hero, produtos, editorial, CTA, footer e responsividade; renderize desktop/mobile e inspecione antes de concluir.");
     }
 
     static async Task<bool> VerifyAsync(string root, string id, CancellationToken ct)
@@ -67,25 +82,23 @@ public sealed class TrainingScheduler
         static async Task<string> Read(string root, string file, CancellationToken ct) => (await File.ReadAllTextAsync(Path.Combine(root,file),ct)).Trim();
         return id switch
         {
-            "edit" => (await Read(root,"README.md",ct)).EndsWith("MIAU training edit OK", StringComparison.Ordinal),
-            "create" => File.Exists(Path.Combine(root,"training-result.txt")) && await Read(root,"training-result.txt",ct) == "MIAU training create OK",
-            "recover" => await Read(root,"config.txt",ct) == "mode=new",
-            "delete" => !File.Exists(Path.Combine(root,"obsolete.txt")),
-            "multi" => await Read(root,"app.txt",ct) == "app=v2" && await Read(root,"test.txt",ct) == "test=v2",
-            "scope" => await Read(root,"allowed.txt",ct) == "allowed=v2" && await Read(root,"protected.txt",ct) == "do-not-touch",
+            "edit" => (await Read(root,"greeting.html",ct)).Contains("<h1>Olá</h1>"),
+            "create" => File.Exists(Path.Combine(root,"about.html")) && (await Read(root,"about.html",ct)).Contains("Sobre"),
+            "multi" => (await Read(root,"index.html",ct)).Contains("highlight") && (await Read(root,"style.css",ct)).Contains(".highlight"),
+            "recover" => await Read(root,"recovery.txt",ct) == "target=ready" && File.Exists(Path.Combine(root,"recovery-proof.txt")),
+            "build" => (await Read(root,"syntax.py",ct)).Contains("print(") && !string.IsNullOrWhiteSpace(await Read(root,"syntax.py",ct)),
+            "visual" or "landing" or "cafeteria" => (await Read(root,"index.html",ct)).Contains("<header", StringComparison.OrdinalIgnoreCase) && (await Read(root,"style.css",ct)).Contains("@media", StringComparison.OrdinalIgnoreCase),
             _ => false
         };
     }
 
     static async Task SeedAsync(string root, string id, CancellationToken ct)
     {
-        await File.WriteAllTextAsync(Path.Combine(root, "README.md"), "# MIAU Training\n", ct);
-        await File.WriteAllTextAsync(Path.Combine(root, "config.txt"), "mode=old\n", ct);
-        await File.WriteAllTextAsync(Path.Combine(root, "obsolete.txt"), "remove me\n", ct);
-        await File.WriteAllTextAsync(Path.Combine(root, "app.txt"), "app=v1\n", ct);
-        await File.WriteAllTextAsync(Path.Combine(root, "test.txt"), "test=v1\n", ct);
-        await File.WriteAllTextAsync(Path.Combine(root, "allowed.txt"), "allowed=v1\n", ct);
-        await File.WriteAllTextAsync(Path.Combine(root, "protected.txt"), "do-not-touch\n", ct);
+        await File.WriteAllTextAsync(Path.Combine(root, "greeting.html"), "<h1>Hello</h1>\n", ct);
+        await File.WriteAllTextAsync(Path.Combine(root, "recovery.txt"), "target=ready\n", ct);
+        await File.WriteAllTextAsync(Path.Combine(root, "syntax.py"), "print('broken'\n", ct);
+        await File.WriteAllTextAsync(Path.Combine(root, "index.html"), "<!doctype html><html><head><meta name=\"viewport\" content=\"width=device-width\"><link rel=\"stylesheet\" href=\"style.css\"></head><body><main><h1>Minimal</h1></main></body></html>\n", ct);
+        await File.WriteAllTextAsync(Path.Combine(root, "style.css"), "body { font-family: sans-serif; }\n", ct);
         var psi = new System.Diagnostics.ProcessStartInfo("git") { WorkingDirectory = root, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
         foreach (var args in new[]{ new[]{"init"}, new[]{"add","."}, new[]{"-c","user.name=MIAU Training","-c","user.email=miau@local","commit","-m","seed"} })
         { psi.ArgumentList.Clear(); foreach(var a in args) psi.ArgumentList.Add(a); using var p=System.Diagnostics.Process.Start(psi)!; await p.WaitForExitAsync(ct); }

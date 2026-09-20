@@ -4,7 +4,8 @@ using System.Text.Json;
 namespace Miau.Desktop;
 
 public sealed record BenchmarkCase(string Id, string Task, Dictionary<string, string> Files, string[] ExpectedChangedFiles, Dictionary<string, string> ExpectedContent, bool ReadOnly = false);
-public sealed record BenchmarkResult(string Id, bool Passed, double DurationSeconds, int ToolCalls, int Retries, double QualityScore, string Detail);
+public sealed record BenchmarkResult(string Id, bool Passed, double DurationSeconds, int ToolCalls, int Retries, double QualityScore, string Detail,
+    int EffectiveChanges = 0, int NoEffectiveChangeCount = 0, int RecoveryCount = 0, bool HumanIntervention = false, bool ValidationPassed = false, bool OutOfScopeChanges = false);
 
 public sealed class BenchmarkService
 {
@@ -28,7 +29,9 @@ public sealed class BenchmarkService
                 var scopeOk = changed.SequenceEqual(item.ExpectedChangedFiles.Order());
                 var passed = run.Phase == JobPhase.Completed && contentOk && scopeOk;
                 var toolCalls = events.Count(x => x.Type == ExecutionEventType.ToolStarted || x.Type == ExecutionEventType.CommandStarted || x.Type == ExecutionEventType.BuildStarted || x.Type == ExecutionEventType.TestsStarted);
-                results.Add(new(item.Id, passed, watch.Elapsed.TotalSeconds, toolCalls, run.Evidence.Attempts, passed ? Math.Max(0, 100 - run.Evidence.Attempts * 5) : 0, passed ? "acceptance criteria aprovados" : $"phase={run.Phase}; changed={string.Join(',', changed)}"));
+                var metrics = run.Metrics ?? new();
+                results.Add(new(item.Id, passed, watch.Elapsed.TotalSeconds, toolCalls, run.Evidence.Attempts, passed ? Math.Max(0, 100 - run.Evidence.Attempts * 5) : 0, passed ? "acceptance criteria aprovados" : $"phase={run.Phase}; changed={string.Join(',', changed)}; reason={DatasetService.Redact(run.Summary)}",
+                    metrics.EffectiveChanges, metrics.NoEffectiveChangeCount, metrics.RecoveryCount, metrics.HumanIntervention, run.Evidence.ValidationPassed, !scopeOk));
             }
             catch (Exception ex) when (ex is not OperationCanceledException) { results.Add(new(item.Id, false, 0, 0, 0, 0, DatasetService.Redact(ex.Message))); }
             finally { if (Directory.Exists(workspace)) Directory.Delete(workspace, true); }

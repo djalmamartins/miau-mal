@@ -18,6 +18,13 @@ public sealed class LearningPipelineServiceTests : IDisposable
         var readiness = await pipeline.GetReadinessAsync(default); Assert.Equal(1, readiness.Approved); Assert.Equal(1, readiness.PendingReview);
     }
 
+    [Fact] public async Task TrainingExampleRequiresHumanApproval()
+    {
+        var dataset = new DatasetService(Path.Combine(root, "dataset")); await dataset.SaveCompletedAsync(root, Record("pending-approval"), default);
+        var pipeline = new LearningPipelineService(root); var file = await pipeline.ExportApprovedForLoraAsync(Path.Combine(root, "approval-export"), default);
+        Assert.Empty(await File.ReadAllLinesAsync(file)); Assert.Equal(1, (await pipeline.GetReadinessAsync(default)).PendingReview);
+    }
+
     [Fact] public async Task RejectedExamplesDoNotCountTowardLoraReadiness()
     {
         var dataset = new DatasetService(Path.Combine(root, "dataset")); await dataset.SaveCompletedAsync(root, Record("rejected"), default);

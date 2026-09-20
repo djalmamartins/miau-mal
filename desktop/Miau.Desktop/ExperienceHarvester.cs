@@ -14,7 +14,8 @@ public sealed class ExperienceHarvester
             trace.Where(x => !x.Success).Select(x => x.Detail).ToArray(), evidence.Attempts, finalSummary)
         {
             Duration = duration, Success = true,
-            RecoveryStrategy = evidence.Attempts > 0 ? "reinspeção e mudança de ação após falha" : null, Origin = origin
+            RecoveryStrategy = trace.Any(x => x.Kind == "recovery_success") ? "NoEffectiveChange diagnosticado; contexto compactado; estratégia diferente produziu task delta" : evidence.Attempts > 0 ? "reinspeção e mudança de ação após falha" : null,
+            Origin = origin, HumanIntervention = false, FinalBuildPassed = !evidence.ValidationRan || evidence.ValidationPassed
         };
     }
 }

@@ -2,9 +2,9 @@ using System.Text.Json;
 
 namespace Miau.Desktop;
 
-public enum TrainingVerdict { Approved, Rejected }
+public enum TrainingVerdict { Approved, Recovery, Rejected }
 public sealed record TrainingFeedback(string TaskId, TrainingVerdict Verdict, DateTimeOffset At, string? Note = null);
-public sealed record LearningReadiness(int Approved, int PendingReview, int Rejected, int RecoveryExamples, int DistinctProjects, bool ReadyForLora, int MinimumRecommended = 100);
+public sealed record LearningReadiness(int Approved, int PendingReview, int Rejected, int RecoveryExamples, int DistinctProjects, bool ReadyForLora, int MinimumRecommended = 100, int HumanApprovedRecoveries = 0);
 
 public sealed class LearningPipelineService
 {
@@ -25,10 +25,11 @@ public sealed class LearningPipelineService
         var records = await ReadRecordsAsync(ct); var verdicts = await VerdictsAsync(ct);
         var approved = records.Count(x => x.QualityScore >= DatasetService.CompletedQualityThreshold && verdicts.TryGetValue(x.TaskId, out var verdict) && verdict == TrainingVerdict.Approved);
         var rejected = verdicts.Values.Count(x => x == TrainingVerdict.Rejected);
+        var approvedRecoveries = records.Count(x => !string.IsNullOrWhiteSpace(x.RecoveryStrategy) && verdicts.TryGetValue(x.TaskId, out var verdict) && verdict == TrainingVerdict.Recovery);
         var pending = records.Count(x => x.QualityScore >= DatasetService.CompletedQualityThreshold && !verdicts.ContainsKey(x.TaskId));
         var recoveries = CountLines(Path.Combine(Dataset, "recovery", "miau-recovery-v1.jsonl"));
         var projects = records.Where(x => verdicts.TryGetValue(x.TaskId, out var verdict) && verdict == TrainingVerdict.Approved).Select(x => x.ProjectFingerprint).Distinct(StringComparer.OrdinalIgnoreCase).Count();
-        return new(approved, pending, rejected, recoveries, projects, approved >= 100 && projects >= 3);
+        return new(approved, pending, rejected, recoveries, projects, approved >= 100 && projects >= 3, HumanApprovedRecoveries: approvedRecoveries);
     }
 
     public async Task<string> ExportApprovedForLoraAsync(string outputDirectory, CancellationToken ct)
@@ -39,8 +40,12 @@ public sealed class LearningPipelineService
         var file = Path.Combine(outputDirectory, "miau-lora-train.jsonl");
         var lines = records.Select(x => JsonSerializer.Serialize(new { instruction = x.Task, input = string.Join("\n", x.Plan), output = x.FinalResult, metadata = new { x.BaseModel, x.PromptVersion, x.QualityScore, x.Origin } }));
         await File.WriteAllLinesAsync(file, lines, ct);
+        var recoveryFile = Path.Combine(outputDirectory, "miau-recovery-train.jsonl");
+        var recoveryRecords = (await ReadRecordsAsync(ct)).Where(x => !string.IsNullOrWhiteSpace(x.RecoveryStrategy) && verdicts.TryGetValue(x.TaskId, out var verdict) && verdict == TrainingVerdict.Recovery).ToArray();
+        var recoveryLines = recoveryRecords.Select(x => JsonSerializer.Serialize(new { state = x.Task, bad_actions = x.Errors, signal = "failure/recovery episode", recovery = x.RecoveryStrategy, good_outcome = x.FinalResult, metadata = new { x.BaseModel, x.QualityScore } }));
+        await File.WriteAllLinesAsync(recoveryFile, recoveryLines, ct);
         var readme = Path.Combine(outputDirectory, "README.md");
-        await File.WriteAllTextAsync(readme, $"# MIAU LoRA export\n\nExemplos aprovados: {records.Length}\n\nEste arquivo é um dataset curado para fine-tuning/LoRA externo. O MIAU não treina nem instala modelos automaticamente. Valide o dataset, treine fora do aplicativo e carregue o adaptador resultante no Ollama.\n", ct);
+        await File.WriteAllTextAsync(readme, $"# MIAU LoRA export\n\nExemplos positivos aprovados: {records.Length}\nExemplos de recovery aprovados: {recoveryRecords.Length}\n\nOs arquivos são datasets curados para fine-tuning/LoRA externo. Falhas nunca são exportadas como respostas positivas. O MIAU não treina nem instala modelos automaticamente.\n", ct);
         return file;
     }
 

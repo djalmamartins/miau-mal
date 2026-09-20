@@ -23,6 +23,8 @@ public sealed record TrainingRecord(
     public IReadOnlyList<string> QualityReasons { get; init; } = [];
     public string? RecoveryStrategy { get; init; }
     public string Origin { get; init; } = "interactive";
+    public bool HumanIntervention { get; init; }
+    public bool FinalBuildPassed { get; init; }
 }
 
 public interface IDatasetService { Task SaveCompletedAsync(string workspace, TrainingRecord record, CancellationToken ct); }

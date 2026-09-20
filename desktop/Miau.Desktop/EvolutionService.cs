@@ -9,7 +9,7 @@ public sealed record EvolutionSnapshot(string AgentVersion, string Model, string
     int TasksTotal, int TasksCompleted, int TasksFailed, int TasksCancelled, double SuccessRate, int Experiences, int Memories,
     int Failures, int RecoveredFailures, int Retries, int BuildsPassed, int BuildsFailed, int TestsPassed, int TestsFailed,
     double AverageDurationSeconds, int DatasetCompleted, int DatasetRecovery, int DatasetRejected, int DatasetReview,
-    double AverageQualityScore, int QualityEvaluated, int LegacyWithoutQualityScore, int TrainingCycles, int TrainingTasks, int TrainingCompleted, int RepairDecisions, int RepairsAccepted, int RepairsRejected, int RepairsPromoted, int RepairsReverted, IReadOnlyList<SkillMetric> Skills, IReadOnlyList<string> RecentActivity, IReadOnlyList<EvolutionPoint> History);
+    double AverageQualityScore, int QualityEvaluated, int LegacyWithoutQualityScore, int TrainingCycles, int TrainingTasks, int TrainingCompleted, int RepairDecisions, int RepairsAccepted, int RepairsRejected, int RepairsPromoted, int RepairsReverted, IReadOnlyList<SkillMetric> Skills, IReadOnlyList<string> RecentActivity, IReadOnlyList<EvolutionPoint> History, double AutonomyRate = 0, double RecoverySuccessRate = 0, int FinalBrokenBuilds = 0);
 
 public sealed class EvolutionService
 {
@@ -42,6 +42,10 @@ public sealed class EvolutionService
         var buildsPassed = CountTool(toolEvents, "build", true); var buildsFailed = CountTool(toolEvents, "build", false);
         var testsPassed = CountTool(toolEvents, "test", true); var testsFailed = CountTool(toolEvents, "test", false);
         var recovered = recoveries.Count(x => Bool(x, "Recovered", "recovered")); var total = completed + failed;
+        var autonomy = Rate(documents.Count(x => !Bool(x, "HumanIntervention", "human_intervention")), Math.Max(documents.Count, 1));
+        var recoveryEpisodes = await ReadDocuments(Path.Combine(dataset, "recovery-episodes"), ct);
+        var recoverySuccess = Rate(recoveryEpisodes.Count(x => Text(x, "FinalOutcome").Equals("recovered", StringComparison.OrdinalIgnoreCase)), recoveryEpisodes.Count);
+        var finalBrokenBuilds = documents.Count(x => Try(x, out _, "FinalBuildPassed") && !Bool(x, "FinalBuildPassed"));
         var point = new EvolutionPoint(DateTimeOffset.Now, completed, Rate(completed, total), Rate(retries, Math.Max(completed, 1)), Rate(recovered, recoveries.Count),
             quality.Length == 0 ? 0 : quality.Average(), Rate(toolEvents.Count(x => !x.Success), toolEvents.Length),
             Rate(rejected.Count(x => Text(x, "reason").Contains("escopo", StringComparison.OrdinalIgnoreCase)), total),
@@ -51,7 +55,7 @@ public sealed class EvolutionService
         return new(Miau1Coder.AgentName, model, Miau1Coder.ProtocolVersion, Miau1Coder.DatasetSchemaVersion, total, completed, failed, cancelled,
             Rate(completed, total), documents.Count + recoveries.Count + rejected.Count, memories.Count, recoveries.Count, recovered, retries,
             buildsPassed, buildsFailed, testsPassed, testsFailed, durations.Length == 0 ? 0 : durations.Average(), completed, recoveries.Count,
-            rejected.Count, review.Count, quality.Length == 0 ? 0 : quality.Average(), quality.Length, legacyWithoutQuality, trainingCycles.Count, trainingTasks, trainingCompleted, repairDecisions.Count, repairsAccepted, repairsRejected, repairsPromoted, repairsReverted, skills, recent, history);
+            rejected.Count, review.Count, quality.Length == 0 ? 0 : quality.Average(), quality.Length, legacyWithoutQuality, trainingCycles.Count, trainingTasks, trainingCompleted, repairDecisions.Count, repairsAccepted, repairsRejected, repairsPromoted, repairsReverted, skills, recent, history, autonomy, recoverySuccess, finalBrokenBuilds);
     }
 
     static async Task<List<JsonElement>> ReadNamedDocuments(string file, CancellationToken ct)
