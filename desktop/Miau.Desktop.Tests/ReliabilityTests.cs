@@ -60,8 +60,9 @@ public sealed class ReliabilityTests : IDisposable
     }
     [Fact] public void ResponsiveVisualTaskRequiresDesktopAndMobile()
     {
-        var req = new JobRequirements(true,false,true,true); var plan = AcceptancePlanner.Build("site responsivo", req); var job = new JobEngine(req, acceptance: plan); job.Start(); job.Observe(ToolResult.Ok(ToolNames.ReadFile,"",("inspected_path","index.html"))); job.Observe(ToolResult.Ok(ToolNames.WriteFile,"",("changed_path","index.html"))); job.Observe(ToolResult.Ok(ToolNames.GitDiff,"",("has_changes","true"))); job.Observe(ToolResult.Ok(ToolNames.Test,"",("validation","true"))); job.Observe(ToolResult.Ok(ToolNames.RenderPage,"",("visual_validation","true"),("viewport","1440x1200"))); job.Observe(ToolResult.Ok(ToolNames.InspectVisual,"",("visual_inspection","true"),("visual_verdict","approved")));
-        Assert.False(job.TryComplete(out var reason)); Assert.Contains("mobile", reason); plan.Satisfy("responsive-structure", "viewport + media"); job.Observe(ToolResult.Ok(ToolNames.RenderPage,"",("visual_validation","true"),("viewport","390x844"))); Assert.False(job.TryComplete(out var inspection)); Assert.Contains("mais recente", inspection); job.Observe(ToolResult.Ok(ToolNames.InspectVisual,"",("visual_inspection","true"),("visual_verdict","approved"))); Assert.True(job.TryComplete(out _));
+        var desktop = new string('a',64); var mobile = new string('b',64);
+        var req = new JobRequirements(true,false,true,true); var plan = AcceptancePlanner.Build("site responsivo", req); var job = new JobEngine(req, acceptance: plan); job.Start(); job.Observe(ToolResult.Ok(ToolNames.ReadFile,"",("inspected_path","index.html"))); job.Observe(ToolResult.Ok(ToolNames.WriteFile,"",("changed_path","index.html"))); job.Observe(ToolResult.Ok(ToolNames.GitDiff,"",("has_changes","true"))); job.Observe(ToolResult.Ok(ToolNames.Test,"",("validation","true"))); job.Observe(ToolResult.Ok(ToolNames.RenderPage,"",("visual_validation","true"),("viewport","1440x1200"),("screenshot_hash",desktop))); job.Observe(VisualInspection("1440x1200",desktop));
+        Assert.False(job.TryComplete(out var reason)); Assert.Contains("mobile", reason); plan.Satisfy("responsive-structure", "viewport + media"); job.Observe(ToolResult.Ok(ToolNames.RenderPage,"",("visual_validation","true"),("viewport","390x844"),("screenshot_hash",mobile))); Assert.False(job.TryComplete(out var inspection)); Assert.Contains("mais recente", inspection); job.Observe(VisualInspection("390x844",mobile)); Assert.True(job.TryComplete(out _));
     }
     [Fact] public void IdenticalScreenshotIsNotProgress()
     {
@@ -77,9 +78,10 @@ public sealed class ReliabilityTests : IDisposable
         var required = plan.Criteria.Where(x => x.Required).Select(x => x.Id).ToArray();
         Assert.Contains("header", required); Assert.Contains("hero", required); Assert.Contains("products", required); Assert.Contains("editorial", required);
         Assert.Contains("cta", required); Assert.Contains("footer", required); Assert.Contains("responsive-structure", required);
-        Assert.Contains("desktop-render", required); Assert.Contains("mobile-render", required); Assert.Contains("visual-inspection", required);
+        Assert.Contains("desktop-render", required); Assert.Contains("mobile-render", required); Assert.Contains("desktop-visual-inspection", required); Assert.Contains("mobile-visual-inspection", required);
     }
 
+    static ToolResult VisualInspection(string viewport, string hash) => ToolResult.Ok(ToolNames.InspectVisual,"",("visual_inspection","true"),("image_included","true"),("viewport",viewport),("screenshot_hash",hash),("vision_provider","fake"),("vision_model","fake-vision"),("visual_issue_count","0"),("visual_verdict","approved"));
     sealed class TimeoutModel(int failures) : IModelAdapter { public string ModelId => "timeout"; public int Calls { get; private set; } public Task<string> CompleteStepAsync(ModelRequest request, CancellationToken ct) { Calls++; if (Calls <= failures) throw new TimeoutException("90s"); return Task.FromResult("{\"type\":\"final\",\"summary\":\"analisado\",\"files_changed\":[]}"); } }
     sealed class ReadTools : IToolExecutor { public Task<ToolResult> ExecuteAsync(string workspace, MiauAction action, bool readOnly, CancellationToken ct) => Task.FromResult(ToolResult.Ok(action.Action,"files",("inspected_path","."))); public Task<ToolResult> ValidateAsync(string workspace, CancellationToken ct) => Task.FromResult(ToolResult.Ok(ToolNames.Test,"ok",("validation","true"))); }
     sealed class NullDataset : IDatasetService { public Task SaveCompletedAsync(string workspace, TrainingRecord record, CancellationToken ct) => Task.CompletedTask; }

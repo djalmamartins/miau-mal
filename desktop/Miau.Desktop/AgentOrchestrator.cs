@@ -275,7 +275,8 @@ public sealed class AgentOrchestrator
         if (result.Metadata.TryGetValue("inspected_path", out var inspected)) return tracker.Record(ProgressKind.Inspection, inspected);
         if (action.Action == ToolNames.GitDiff) return tracker.Record(ProgressKind.Diff, result.Output);
         if (result.Metadata.ContainsKey("validation")) return tracker.Record(ProgressKind.Validation, result.Output);
-        if (result.Metadata.TryGetValue("screenshot_hash", out var hash)) return tracker.Record(ProgressKind.Visual, hash);
+        if (result.Metadata.TryGetValue("screenshot_hash", out var hash))
+            return tracker.Record(ProgressKind.Visual, string.Join('|', hash, result.Metadata.GetValueOrDefault("viewport", ""), result.Metadata.GetValueOrDefault("visual_inspection", "render"), action.Arguments.GetValueOrDefault("criteria", "")));
         return false;
     }
 

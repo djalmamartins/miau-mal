@@ -5,8 +5,8 @@ namespace Miau.Desktop;
 // Compatibility facade for the UI and autonomous GitHub flow. Execution lives in the orchestrator.
 public sealed class AgentService
 {
-    readonly ToolExecutor tools = new();
     public string Model { get; set; } = "qwen2.5-coder:7b";
+    public string? VisionModel { get; set; }
     public TimeSpan ModelTimeout { get; set; } = TimeSpan.FromSeconds(90);
     public AgentRunResult? LastRunResult { get; private set; }
 
@@ -20,7 +20,7 @@ public sealed class AgentService
     {
         var requirements = Classify(prompt);
         var adapter = new OllamaModelAdapter(Model, requestTimeout: ModelTimeout);
-        var orchestrator = new AgentOrchestrator(adapter, tools, dataset);
+        var orchestrator = new AgentOrchestrator(adapter, CreateTools(), dataset);
         var result = await orchestrator.RunAsync(root, prompt, requirements, ct,
             eventSink: ev => progress(ev.Description + (string.IsNullOrWhiteSpace(ev.Target) ? "" : $": {ev.Target}")), origin: "training");
         LastRunResult = result;
@@ -31,7 +31,7 @@ public sealed class AgentService
     {
         var requirements = Classify(prompt);
         var adapter = new OllamaModelAdapter(Model, requestTimeout: ModelTimeout);
-        var orchestrator = new AgentOrchestrator(adapter, tools, new DatasetService());
+        var orchestrator = new AgentOrchestrator(adapter, CreateTools(), new DatasetService());
         try
         {
             var result = await orchestrator.RunAsync(root, prompt, requirements, ct, eventSink: events, origin: origin); LastRunResult = result;
@@ -51,12 +51,12 @@ public sealed class AgentService
 
     public async Task<string> GetGitStatusAsync(string root, CancellationToken ct)
     {
-        var result = await tools.ExecuteAsync(root, new(ToolNames.GitStatus, [], null), true, ct);
+        var result = await CreateTools().ExecuteAsync(root, new(ToolNames.GitStatus, [], null), true, ct);
         if (!result.Success) throw new InvalidOperationException(result.Error); return result.Output;
     }
     public async Task<string> GetGitDiffAsync(string root, CancellationToken ct)
     {
-        var result = await tools.ExecuteAsync(root, new(ToolNames.GitDiff, [], null), true, ct);
+        var result = await CreateTools().ExecuteAsync(root, new(ToolNames.GitDiff, [], null), true, ct);
         if (!result.Success) throw new InvalidOperationException(result.Error); return result.Output;
     }
 
@@ -71,4 +71,5 @@ public sealed class AgentService
         var visual = change && Regex.IsMatch(prompt, @"\b(site|página|pagina|layout|interface|ui|ux|visual|responsiv|html|css|frontend|front-end|tela|design)\b", RegexOptions.IgnoreCase);
         return new(change, readOnly, change, visual);
     }
+    ToolExecutor CreateTools() => new(visualInspector: new OllamaVisualInspector(VisionModel));
 }

@@ -19,11 +19,12 @@ public sealed class JobEngineTests
         job.Observe(Ok(ToolNames.GitDiff, ("has_changes", "true")));
         job.Observe(Ok(ToolNames.Test, ("validation", "true")));
         Assert.False(job.TryComplete(out var reason)); Assert.Contains("renderizada", reason);
-        job.Observe(Ok(ToolNames.RenderPage, ("visual_validation", "true")));
+        var hash = new string('a', 64);
+        job.Observe(Ok(ToolNames.RenderPage, ("visual_validation", "true"), ("viewport", "1440x1200"), ("screenshot_hash", hash)));
         Assert.False(job.TryComplete(out var inspectReason)); Assert.Contains("inspetor visual", inspectReason);
-        job.Observe(Ok(ToolNames.InspectVisual, ("visual_inspection", "true"), ("visual_verdict", "review")));
+        job.Observe(Ok(ToolNames.InspectVisual, ("visual_inspection", "true"), ("image_included", "true"), ("viewport", "1440x1200"), ("screenshot_hash", hash), ("vision_provider", "fake"), ("vision_model", "fake-vision"), ("visual_issue_count", "1"), ("visual_verdict", "review")));
         Assert.False(job.TryComplete(out var reviewReason)); Assert.Contains("revisão", reviewReason);
-        job.Observe(Ok(ToolNames.InspectVisual, ("visual_inspection", "true"), ("visual_verdict", "approved")));
+        job.Observe(Ok(ToolNames.InspectVisual, ("visual_inspection", "true"), ("image_included", "true"), ("viewport", "1440x1200"), ("screenshot_hash", hash), ("vision_provider", "fake"), ("vision_model", "fake-vision"), ("visual_issue_count", "0"), ("visual_verdict", "approved")));
         Assert.True(job.TryComplete(out _));
     }
     [Fact] public void EmptyDiffFails() { var job = ChangedJob(); job.Observe(Ok(ToolNames.WriteFile, ("changed_path", "a.cs"))); job.Observe(Ok(ToolNames.GitDiff, ("has_changes", "false"))); Assert.False(job.TryComplete(out _)); }

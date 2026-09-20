@@ -35,7 +35,8 @@ public static class AcceptancePlanner
             var responsive = task.Contains("responsiv", StringComparison.OrdinalIgnoreCase) || task.Contains("mobile", StringComparison.OrdinalIgnoreCase);
             if (responsive) list.Add(new("responsive-structure", "viewport meta e CSS responsivo", improvement ? AcceptanceType.Modification : AcceptanceType.Structural, true, RequiresTaskDelta: improvement));
             list.Add(new("mobile-render", "render mobile 390x844", AcceptanceType.MobileRender, responsive));
-            list.Add(new("visual-inspection", "inspeção visual acionável", AcceptanceType.VisualInspection, true));
+            list.Add(new("desktop-visual-inspection", "inspeção visual real desktop", AcceptanceType.VisualInspection, true));
+            list.Add(new("mobile-visual-inspection", "inspeção visual real mobile", AcceptanceType.VisualInspection, responsive));
         }
         return new(list);
     }
