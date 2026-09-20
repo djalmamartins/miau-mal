@@ -11,13 +11,21 @@ public sealed class WorkspaceBoundary
     public string InitialRoot { get; }
     public string CurrentRoot { get; private set; }
     public bool NewProjectRequested { get; }
+    public string? PreferredDestination => requestedDestinations.Count == 1 ? requestedDestinations.Single() : null;
 
     public WorkspaceBoundary(string initialRoot, string task, IEnumerable<string>? configuredAllowedRoots = null)
     {
         InitialRoot = Normalize(initialRoot); CurrentRoot = InitialRoot;
-        NewProjectRequested = Regex.IsMatch(task, @"\b(crie|criar|novo|nova|inicialize|iniciar|create|new)\b[\s\S]{0,80}\b(projeto|project|site|pasta|diretório|diretorio)\b", RegexOptions.IgnoreCase);
-        requestedDestinations = ExtractAbsolutePaths(task).Select(Normalize).ToHashSet(PathComparer);
         allowedRoots = (configuredAllowedRoots ?? DefaultAllowedRoots(InitialRoot)).Select(Normalize).Distinct(PathComparer).ToArray();
+        var createRequested = Regex.IsMatch(task, @"\b(crie|criar|novo|nova|inicialize|iniciar|create|new)\b[\s\S]{0,80}\b(projeto|project|site|pasta|diretório|diretorio)\b", RegexOptions.IgnoreCase);
+        var namedProject = Regex.Match(task, @"\bprojeto\s+([a-zA-Z0-9._-]+)", RegexOptions.IgnoreCase);
+        requestedDestinations = ExtractAbsolutePaths(task).Select(Normalize).ToHashSet(PathComparer);
+        if (namedProject.Success)
+        {
+            var matches = FindNamedProjects(namedProject.Groups[1].Value).Take(2).ToArray();
+            if (matches.Length == 1) requestedDestinations.Add(matches[0]);
+        }
+        NewProjectRequested = createRequested || namedProject.Success;
     }
 
     public WorkspaceTransition Initialize(string requestedPath)
@@ -64,6 +72,22 @@ public sealed class WorkspaceBoundary
         for (var current = new DirectoryInfo(initial); current is not null; current = current.Parent)
             if (current.Name.Equals("Projects", StringComparison.OrdinalIgnoreCase)) return [current.FullName];
         return [Directory.GetParent(initial)?.FullName ?? initial];
+    }
+    IEnumerable<string> FindNamedProjects(string name)
+    {
+        foreach (var root in allowedRoots)
+        {
+            if (!Directory.Exists(root)) continue;
+            var pending = new Queue<(string Path, int Depth)>(); pending.Enqueue((root, 0));
+            while (pending.Count > 0)
+            {
+                var (path, depth) = pending.Dequeue();
+                if (new DirectoryInfo(path).Name.Equals(name, StringComparison.OrdinalIgnoreCase)) yield return Normalize(path);
+                if (depth >= 4) continue;
+                IEnumerable<string> children; try { children = Directory.EnumerateDirectories(path); } catch { continue; }
+                foreach (var child in children.Where(x => !new DirectoryInfo(x).Attributes.HasFlag(FileAttributes.ReparsePoint))) pending.Enqueue((child, depth + 1));
+            }
+        }
     }
     static void EnsureNoSymlinkEscape(string allowedRoot, string target)
     {

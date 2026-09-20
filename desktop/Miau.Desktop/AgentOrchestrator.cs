@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 
 namespace Miau.Desktop;
 
@@ -14,7 +15,13 @@ public sealed class AgentOrchestrator
     public async Task<AgentRunResult> RunAsync(string workspace, string task, JobRequirements requirements, CancellationToken ct,
         Action<JobPhase, string>? progress = null, Action<ExecutionEvent>? eventSink = null, string origin = "interactive")
     {
-        var boundary = new WorkspaceBoundary(workspace, task); var acceptance = AcceptancePlanner.Build(task, requirements); var engine = new JobEngine(requirements, acceptance: acceptance); var tracker = new ProgressTracker(); var recoveryEngine = new RecoveryEngine(); var visualRevisions = new VisualRevisionPolicy();
+        var boundary = new WorkspaceBoundary(workspace, task);
+        if (boundary.PreferredDestination is { } preferred && !Path.GetFullPath(workspace).Equals(preferred, StringComparison.Ordinal))
+        {
+            var initialTransition = boundary.Initialize(preferred);
+            if (initialTransition.Authorized) workspace = preferred;
+        }
+        var acceptance = AcceptancePlanner.Build(task, requirements); var engine = new JobEngine(requirements, acceptance: acceptance); var tracker = new ProgressTracker(); var recoveryEngine = new RecoveryEngine(); var visualRevisions = new VisualRevisionPolicy();
         var workspaceBaseline = Directory.Exists(workspace) ? WorkspaceBaseline.Capture(workspace) : null;
         var trace = new List<TaskTraceEvent>(); var plan = new List<string>(); var replaceFailures = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase); var consecutiveTimeouts = 0; var turns = new List<ModelTurn> { new("user", task) }; var jobWatch = Stopwatch.StartNew();
         (MiauAction Action, ToolResult Result)? pendingRecovery = null;
@@ -69,8 +76,8 @@ public sealed class AgentOrchestrator
                         if (transition.Authorized) { workspace = transition.NewRoot!; workspaceBaseline = WorkspaceBaseline.Capture(workspace); tracker.Record(ProgressKind.Inspection, "workspace:" + workspace); }
                         turns.Add(new("assistant", raw)); turns.Add(new("user", ToolObservation(transitionResult))); continue;
                     }
-                    var mutatingAction = response.Action!.Action is ToolNames.WriteFile or ToolNames.ReplaceInFile or ToolNames.ApplyPatch;
-                    var stagnation = mutatingAction ? new StagnationResult(false, 0, "", "") : tracker.ObserveAction(response.Action!);
+                    var resultDrivenAction = response.Action!.Action is ToolNames.WriteFile or ToolNames.ReplaceInFile or ToolNames.ApplyPatch or ToolNames.RenderPage or ToolNames.InspectVisual or ToolNames.GitDiff or ToolNames.Build or ToolNames.Test;
+                    var stagnation = resultDrivenAction ? new StagnationResult(false, 0, "", "") : tracker.ObserveAction(response.Action!);
                     if (stagnation.Detected)
                     {
                         Emit(ExecutionEventType.StagnationDetected, stagnation.Message, stagnation.Cycle, success: false, metadata: new Dictionary<string,string> { ["level"] = stagnation.Level.ToString() });
@@ -110,8 +117,8 @@ public sealed class AgentOrchestrator
                     if (response.Action.Action == ToolNames.RenderPage && requirements.RequiresVisualValidation && IsBroadVisualRewrite(task))
                     {
                         var htmlPath = Target(response.Action) ?? "";
-                        var cssPath = Path.Combine(Path.GetDirectoryName(htmlPath) ?? "", "style.css").Replace('\\', '/');
                         var htmlCheck = await tools.ExecuteAsync(workspace, new(ToolNames.ReadFile, new() { ["path"] = htmlPath }, "Verificação determinística dos critérios visuais."), true, ct);
+                        var cssPath = ResolveStylesheetPath(workspace, htmlPath, htmlCheck.Success ? htmlCheck.Output : "");
                         var cssCheck = await tools.ExecuteAsync(workspace, new(ToolNames.ReadFile, new() { ["path"] = cssPath }, "Verificação determinística da responsividade."), true, ct);
                         var visualAcceptance = VisualAcceptance.Evaluate(task, htmlCheck.Success ? htmlCheck.Output : "", cssCheck.Success ? cssCheck.Output : "");
                         if (!visualAcceptance.Passed)
@@ -300,6 +307,17 @@ public sealed class AgentOrchestrator
         if (result.Metadata.TryGetValue("screenshot_hash", out var hash))
             return tracker.Record(ProgressKind.Visual, string.Join('|', hash, result.Metadata.GetValueOrDefault("viewport", ""), result.Metadata.GetValueOrDefault("visual_inspection", "render"), action.Arguments.GetValueOrDefault("criteria", "")));
         return false;
+    }
+
+    public static string ResolveStylesheetPath(string workspace, string htmlPath, string html)
+    {
+        foreach (Match match in Regex.Matches(html, "<link\\b[^>]*\\bhref\\s*=\\s*['\\\"]([^'\\\"?#]+\\.css)['\\\"]", RegexOptions.IgnoreCase))
+        {
+            var candidate = Path.Combine(Path.GetDirectoryName(htmlPath) ?? "", match.Groups[1].Value).Replace('\\', '/');
+            var full = Path.GetFullPath(Path.Combine(workspace, candidate));
+            if (full.StartsWith(Path.GetFullPath(workspace) + Path.DirectorySeparatorChar, StringComparison.Ordinal) && File.Exists(full)) return candidate;
+        }
+        return Directory.EnumerateFiles(workspace, "*.css", SearchOption.AllDirectories).Select(x => Path.GetRelativePath(workspace, x).Replace('\\','/')).FirstOrDefault() ?? Path.Combine(Path.GetDirectoryName(htmlPath) ?? "", "style.css").Replace('\\','/');
     }
 
     static List<ModelTurn> CompactContext(List<ModelTurn> turns, IReadOnlyList<string> plan, JobEvidence evidence, AcceptancePlan acceptance)
