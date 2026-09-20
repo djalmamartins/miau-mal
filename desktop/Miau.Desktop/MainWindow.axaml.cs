@@ -682,6 +682,8 @@ public partial class MainWindow : Window
             var effectivePrompt = string.IsNullOrWhiteSpace(recalled) ? prompt : $"{prompt}\n\nMEMÓRIA RELEVANTE DESTE PROJETO:\n{recalled}";
             var result = await agent.RunWithEventsAsync(workspace, effectivePrompt, cts.Token,
                 ev => Dispatcher.UIThread.Post(() => { activity.Text = ExecutionProgressNarrative.For(ev); Timeline(ev); }));
+            if (!string.IsNullOrWhiteSpace(agent.LastRunResult?.WorkspaceRoot) && !Path.GetFullPath(workspace).Equals(Path.GetFullPath(agent.LastRunResult.WorkspaceRoot), StringComparison.Ordinal))
+                await SetWorkspace(agent.LastRunResult.WorkspaceRoot);
             activity.Text = "";
             Add("MIAU", result);
             if (!string.IsNullOrWhiteSpace(agent.LastRunResult?.TrainingRecordId)) AddTrainingReview(agent.LastRunResult.TrainingRecordId);

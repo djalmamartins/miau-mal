@@ -3,7 +3,7 @@ using System.Diagnostics;
 namespace Miau.Desktop;
 
 public sealed record AgentRunMetrics(int NoEffectiveChangeCount = 0, int RecoveryCount = 0, int EffectiveChanges = 0, bool HumanIntervention = false, int Actions = 0);
-public sealed record AgentRunResult(string Summary, JobPhase Phase, JobEvidence Evidence, string? TrainingRecordId = null, AgentRunMetrics? Metrics = null);
+public sealed record AgentRunResult(string Summary, JobPhase Phase, JobEvidence Evidence, string? TrainingRecordId = null, AgentRunMetrics? Metrics = null, string? WorkspaceRoot = null);
 
 public sealed class AgentOrchestrator
 {
@@ -14,7 +14,7 @@ public sealed class AgentOrchestrator
     public async Task<AgentRunResult> RunAsync(string workspace, string task, JobRequirements requirements, CancellationToken ct,
         Action<JobPhase, string>? progress = null, Action<ExecutionEvent>? eventSink = null, string origin = "interactive")
     {
-        var acceptance = AcceptancePlanner.Build(task, requirements); var engine = new JobEngine(requirements, acceptance: acceptance); var tracker = new ProgressTracker(); var recoveryEngine = new RecoveryEngine(); var visualRevisions = new VisualRevisionPolicy();
+        var boundary = new WorkspaceBoundary(workspace, task); var acceptance = AcceptancePlanner.Build(task, requirements); var engine = new JobEngine(requirements, acceptance: acceptance); var tracker = new ProgressTracker(); var recoveryEngine = new RecoveryEngine(); var visualRevisions = new VisualRevisionPolicy();
         var workspaceBaseline = Directory.Exists(workspace) ? WorkspaceBaseline.Capture(workspace) : null;
         var trace = new List<TaskTraceEvent>(); var plan = new List<string>(); var replaceFailures = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase); var consecutiveTimeouts = 0; var turns = new List<ModelTurn> { new("user", task) }; var jobWatch = Stopwatch.StartNew();
         (MiauAction Action, ToolResult Result)? pendingRecovery = null;
@@ -59,6 +59,16 @@ public sealed class AgentOrchestrator
                 }
                 if (response.Type == "action")
                 {
+                    if (response.Action!.Action == ToolNames.InitializeProjectWorkspace)
+                    {
+                        var requested = response.Action.Arguments.GetValueOrDefault("path", ""); var transition = boundary.Initialize(requested);
+                        var transitionResult = transition.Authorized
+                            ? ToolResult.Ok(ToolNames.InitializeProjectWorkspace, transition.Message, ("workspace_root", transition.NewRoot!), ("workspace_transition", transition.Code))
+                            : ToolResult.Fail(ToolNames.InitializeProjectWorkspace, transition.Message);
+                        Record(trace, transitionResult); Emit(transitionResult.Success ? ExecutionEventType.ToolCompleted : ExecutionEventType.ToolFailed, transition.Message, requested, success: transitionResult.Success);
+                        if (transition.Authorized) { workspace = transition.NewRoot!; workspaceBaseline = WorkspaceBaseline.Capture(workspace); tracker.Record(ProgressKind.Inspection, "workspace:" + workspace); }
+                        turns.Add(new("assistant", raw)); turns.Add(new("user", ToolObservation(transitionResult))); continue;
+                    }
                     var mutatingAction = response.Action!.Action is ToolNames.WriteFile or ToolNames.ReplaceInFile or ToolNames.ApplyPatch;
                     var stagnation = mutatingAction ? new StagnationResult(false, 0, "", "") : tracker.ObserveAction(response.Action!);
                     if (stagnation.Detected)
@@ -122,6 +132,18 @@ public sealed class AgentOrchestrator
                             }
                     }
                     var result = await ExecuteTool(workspace, response.Action!, requirements.ReadOnly, engine, trace, Emit, ct);
+                    if (!result.Success && result.Error?.Contains("Caminho fora do workspace", StringComparison.OrdinalIgnoreCase) == true && response.Action.Arguments.TryGetValue("path", out var attemptedPath))
+                    {
+                        var transition = boundary.InitializeForRequestedPath(attemptedPath);
+                        if (transition.Authorized)
+                        {
+                            Emit(ExecutionEventType.RecoveryStarted, "PathOutsideWorkspace convertido em novo workspace autorizado", transition.NewRoot, success: true, metadata: new Dictionary<string,string> { ["workspace_transition"] = transition.Code });
+                            workspace = transition.NewRoot!; workspaceBaseline = WorkspaceBaseline.Capture(workspace);
+                            var relative = Path.GetRelativePath(workspace, Path.GetFullPath(attemptedPath));
+                            var recoveredAction = response.Action with { Arguments = new(response.Action.Arguments, StringComparer.OrdinalIgnoreCase) { ["path"] = relative } };
+                            result = await ExecuteTool(workspace, recoveredAction, requirements.ReadOnly, engine, trace, Emit, ct);
+                        }
+                    }
                     var outcomeCriterion = acceptance.Criteria.FirstOrDefault(x => x.Required && x.Status == AcceptanceStatus.Pending)?.Id ?? "task-change";
                     tracker.ObserveResult(response.Action, result, outcomeCriterion);
                     if (result.Success && response.Action.Action == ToolNames.InspectVisual && result.Metadata.GetValueOrDefault("visual_verdict") == "review")
@@ -257,12 +279,12 @@ public sealed class AgentOrchestrator
                 var record = harvester.Harvest(workspace, model.ModelId, task, plan, trace, evidence, finalSummary, jobWatch.Elapsed, origin);
                 await dataset.SaveCompletedAsync(workspace, record, ct);
                 Emit(ExecutionEventType.JobCompleted, "Tarefa concluída", duration: null, success: true, metadata: new Dictionary<string, string> { ["files_changed"] = evidence.FilesChanged.Count.ToString() });
-                return new(finalSummary, engine.Phase, evidence, record.TaskId, new(recoveryEngine.NoEffectiveChangeCount, recoveryEngine.RecoveryCount, completionDelta.Count, false, trace.Count(x => x.Kind == "action_requested")));
+                return new(finalSummary, engine.Phase, evidence, record.TaskId, new(recoveryEngine.NoEffectiveChangeCount, recoveryEngine.RecoveryCount, completionDelta.Count, false, trace.Count(x => x.Kind == "action_requested")), workspace);
             }
             if (!engine.IsTerminal) engine.Fail($"Limite de {maxSteps} etapas atingido.");
             Emit(ExecutionEventType.JobFailed, engine.LastError ?? "A tarefa falhou.", success: false);
             if (dataset is DatasetService concreteDataset) await concreteDataset.SaveRejectedAsync(task, model.ModelId, engine.LastError ?? "falha", ct);
-            return new(engine.LastError ?? "A tarefa falhou.", engine.Phase, engine.Evidence, Metrics: new(recoveryEngine.NoEffectiveChangeCount, recoveryEngine.RecoveryCount, workspaceBaseline?.ChangesProducedNow(workspace).Count ?? 0, false, trace.Count(x => x.Kind == "action_requested")));
+            return new(engine.LastError ?? "A tarefa falhou.", engine.Phase, engine.Evidence, Metrics: new(recoveryEngine.NoEffectiveChangeCount, recoveryEngine.RecoveryCount, workspaceBaseline?.ChangesProducedNow(workspace).Count ?? 0, false, trace.Count(x => x.Kind == "action_requested")), WorkspaceRoot: workspace);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         { engine.Cancel(); Emit(ExecutionEventType.JobCancelled, "Tarefa cancelada pelo usuário", success: false); throw; }

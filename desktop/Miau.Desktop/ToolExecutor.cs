@@ -29,7 +29,7 @@ public sealed class ToolExecutor : IToolExecutor
     {
         try
         {
-            if (readOnly && action.Action is ToolNames.WriteFile or ToolNames.ReplaceInFile or ToolNames.DeleteFile or ToolNames.ApplyPatch or ToolNames.RunCommand or ToolNames.Build or ToolNames.Test)
+            if (readOnly && action.Action is ToolNames.WriteFile or ToolNames.ReplaceInFile or ToolNames.DeleteFile or ToolNames.ApplyPatch or ToolNames.RunCommand or ToolNames.Build or ToolNames.Test or ToolNames.CreateDirectory)
                 throw new InvalidOperationException("A tarefa é somente leitura; ferramentas mutáveis estão bloqueadas.");
             string Arg(string name, string fallback = "") => action.Arguments.TryGetValue(name, out var value) ? value : fallback;
             return action.Action switch
@@ -40,6 +40,8 @@ public sealed class ToolExecutor : IToolExecutor
                 ToolNames.FetchUrl => await FetchUrl(Arg("url"), ct),
                 ToolNames.RenderPage => await RenderPage(workspace, Arg("path", "index.html"), ParseViewport(Arg("width"), 1440), ParseViewport(Arg("height"), 1200), ct),
                 ToolNames.InspectVisual => await InspectVisual(Arg("screenshot_path"), Arg("viewport", "0x0"), Arg("objective"), Arg("criteria"), ct),
+                ToolNames.CreateDirectory => CreateDirectory(workspace, Arg("path")),
+                ToolNames.InitializeProjectWorkspace => ToolResult.Fail(action.Action, "initialize_project_workspace só pode ser autorizada pelo WorkspaceBoundary do orquestrador."),
                 ToolNames.WriteFile => await Write(action.Action, SafePath(workspace, Arg("path")), Arg("content"), Arg("path"), ct),
                 ToolNames.ReplaceInFile => await Replace(action.Action, SafePath(workspace, Arg("path")), Arg("old_text"), Arg("new_text"), Arg("path"), ct),
                 ToolNames.DeleteFile => Delete(action.Action, SafePath(workspace, Arg("path")), Arg("path")),
@@ -53,6 +55,12 @@ public sealed class ToolExecutor : IToolExecutor
             };
         }
         catch (Exception ex) when (ex is not OperationCanceledException) { return ToolResult.Fail(action.Action, ex.Message); }
+    }
+
+    static ToolResult CreateDirectory(string workspace, string relative)
+    {
+        var path = SafePath(workspace, relative); Directory.CreateDirectory(path);
+        return ToolResult.Ok(ToolNames.CreateDirectory, $"Diretório criado dentro do workspace: {relative}", ("created_directory", relative));
     }
 
     static int ParseViewport(string value, int fallback) => int.TryParse(value, out var parsed) ? Math.Clamp(parsed, 240, 3840) : fallback;
@@ -278,6 +286,12 @@ public sealed class ToolExecutor : IToolExecutor
     static string ContentHash(string value) => ProgressTracker.ArtifactHash(System.Text.Encoding.UTF8.GetBytes(value));
     static async Task<ToolResult> GitDiff(string workspace, CancellationToken ct)
     {
+        if (!Directory.Exists(Path.Combine(workspace, ".git")))
+        {
+            var files = Directory.EnumerateFiles(workspace, "*", SearchOption.AllDirectories).Where(x => !Ignored(x)).Select(x => Path.GetRelativePath(workspace, x)).Order().ToArray();
+            var manifest = string.Join('\n', files.Select(x => "new project file: " + x));
+            return ToolResult.Ok(ToolNames.GitDiff, manifest, ("has_changes", (files.Length > 0).ToString().ToLowerInvariant()), ("workspace_mode", "unversioned-new-project"));
+        }
         var diff = await Run(workspace, "git", ["diff", "--no-color"], ct);
         var untracked = await Run(workspace, "git", ["ls-files", "--others", "--exclude-standard"], ct);
         var output = string.Join("\n", new[] { diff, untracked }.Where(x => !string.IsNullOrWhiteSpace(x)));
