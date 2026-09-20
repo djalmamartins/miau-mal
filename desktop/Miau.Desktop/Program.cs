@@ -4,7 +4,20 @@ internal static class Program {
  [STAThread] public static void Main(string[] args) {
  if (args.Length > 0 && args[0].Equals("benchmark", StringComparison.OrdinalIgnoreCase)) { RunBenchmark(args).GetAwaiter().GetResult(); return; }
   if (args.Length > 0 && args[0].Equals("vision-e2e", StringComparison.OrdinalIgnoreCase)) { RunVisionE2E(args).GetAwaiter().GetResult(); return; }
+  if (args.Length > 0 && args[0].Equals("workspace-e2e", StringComparison.OrdinalIgnoreCase)) { RunWorkspaceE2E(args).GetAwaiter().GetResult(); return; }
   BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+ }
+ static async Task RunWorkspaceE2E(string[] args) {
+  if (args.Length < 3) throw new ArgumentException("workspace-e2e requer workspace inicial e destino");
+  var initial = Path.GetFullPath(args[1]); var target = Path.GetFullPath(args[2]); var task = $"Crie um novo projeto em {target}";
+  var boundary = new WorkspaceBoundary(initial, task); var transition = boundary.Initialize(target);
+  if (!transition.Authorized) throw new InvalidOperationException(transition.Code + ": " + transition.Message);
+  var tools = new ToolExecutor();
+  var index = await tools.ExecuteAsync(boundary.CurrentRoot, new(ToolNames.WriteFile, new() { ["path"]="index.html", ["content"]="<!doctype html><html><head><meta charset=\"utf-8\"><link rel=\"stylesheet\" href=\"style.css\"></head><body><main><h1>Teste Site Novo</h1><p>Workspace isolado pelo MIAU.</p></main></body></html>" }, "E2E"), false, CancellationToken.None);
+  var css = await tools.ExecuteAsync(boundary.CurrentRoot, new(ToolNames.WriteFile, new() { ["path"]="style.css", ["content"]="body{margin:0;background:#080808;color:#fff;font:20px Arial}main{max-width:800px;margin:100px auto;padding:48px;border:1px solid #333;border-radius:18px}" }, "E2E"), false, CancellationToken.None);
+  var list = await tools.ExecuteAsync(boundary.CurrentRoot, new(ToolNames.ListFiles, new() { ["path"]="." }, "E2E"), true, CancellationToken.None);
+  var render = await tools.ExecuteAsync(boundary.CurrentRoot, new(ToolNames.RenderPage, new() { ["path"]="index.html", ["width"]="1440", ["height"]="1200" }, "E2E"), true, CancellationToken.None);
+  Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new { transition.Code, initial, workspaceRoot=boundary.CurrentRoot, index=index.Success, css=css.Success, files=list.Output.Split('\n',StringSplitOptions.RemoveEmptyEntries), render=render.Success, screenshot=render.Metadata.GetValueOrDefault("screenshot_path"), screenshotHash=render.Metadata.GetValueOrDefault("screenshot_hash") }, new System.Text.Json.JsonSerializerOptions { WriteIndented=true }));
  }
  static async Task RunBenchmark(string[] args) {
   var manifest = args.Length > 1 ? args[1] : Path.Combine(Directory.GetCurrentDirectory(), "benchmarks", "miau1-v0", "cases.json");
