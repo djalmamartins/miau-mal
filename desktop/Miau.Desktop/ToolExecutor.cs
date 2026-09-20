@@ -21,7 +21,9 @@ public interface IToolExecutor
 public sealed class ToolExecutor : IToolExecutor
 {
     readonly IWebReferenceProvider references;
-    public ToolExecutor(IWebReferenceProvider? references = null) => this.references = references ?? new HttpReferenceProvider();
+    readonly IVisualInspector visualInspector;
+    public ToolExecutor(IWebReferenceProvider? references = null, IVisualInspector? visualInspector = null)
+    { this.references = references ?? new HttpReferenceProvider(); this.visualInspector = visualInspector ?? new OllamaVisualInspector(); }
     static readonly string[] Dangerous = ["git reset --hard", "git clean", "git push --force", "git push -f", "rm -rf", "rmdir /s", "del /f /s", "format ", "shutdown", "reboot"];
     public async Task<ToolResult> ExecuteAsync(string workspace, MiauAction action, bool readOnly, CancellationToken ct)
     {
@@ -37,7 +39,7 @@ public sealed class ToolExecutor : IToolExecutor
                 ToolNames.Search => ToolResult.Ok(action.Action, Search(workspace, Arg("query")), ("inspected_path", ".")),
                 ToolNames.FetchUrl => await FetchUrl(Arg("url"), ct),
                 ToolNames.RenderPage => await RenderPage(workspace, Arg("path", "index.html"), ParseViewport(Arg("width"), 1440), ParseViewport(Arg("height"), 1200), ct),
-                ToolNames.InspectVisual => await InspectVisual(Arg("screenshot_path"), Arg("model", "llava:7b"), Arg("viewport", "desconhecido"), Arg("criteria"), Arg("structure"), ct),
+                ToolNames.InspectVisual => await InspectVisual(Arg("screenshot_path"), Arg("viewport", "0x0"), Arg("objective"), Arg("criteria"), ct),
                 ToolNames.WriteFile => await Write(action.Action, SafePath(workspace, Arg("path")), Arg("content"), Arg("path"), ct),
                 ToolNames.ReplaceInFile => await Replace(action.Action, SafePath(workspace, Arg("path")), Arg("old_text"), Arg("new_text"), Arg("path"), ct),
                 ToolNames.DeleteFile => Delete(action.Action, SafePath(workspace, Arg("path")), Arg("path")),
@@ -54,57 +56,30 @@ public sealed class ToolExecutor : IToolExecutor
     }
 
     static int ParseViewport(string value, int fallback) => int.TryParse(value, out var parsed) ? Math.Clamp(parsed, 240, 3840) : fallback;
-    static async Task<ToolResult> InspectVisual(string screenshot, string model, string viewport, string criteria, string structure, CancellationToken ct)
+    async Task<ToolResult> InspectVisual(string screenshot, string viewport, string objective, string criteria, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(screenshot) || !File.Exists(screenshot))
-            return ToolResult.Fail(ToolNames.InspectVisual, "Screenshot não encontrado. Execute render_page primeiro e use o screenshot_path retornado.");
-        var bytes = await File.ReadAllBytesAsync(screenshot, ct);
-        var prompt = """
-Você é o inspetor visual aterrado do MIAU. Analise somente o screenshot e as evidências fornecidas.
-NÃO INVENTE ELEMENTOS. Se pedir revisão, liste ao menos um problema concreto no formato PROBLEMA, EVIDÊNCIA e PRIORIDADE. Comentários genéricos não justificam revisão.
-Retorne um relatório curto e objetivo em português com:
-1. hierarquia visual;
-2. espaçamento/alinhamento;
-3. tipografia/contraste;
-4. responsividade aparente;
-5. problemas visuais concretos;
-6. melhorias prioritárias.
-Cada problema deve usar exatamente: PROBLEMA, EVIDÊNCIA, LOCAL, PRIORIDADE e AÇÃO_SUGERIDA.
-Não invente elementos que não aparecem na imagem. Termine com VEREDITO: APROVADO ou VEREDITO: REVISAR.
-""";
-        using var client = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeout.CancelAfter(TimeSpan.FromSeconds(90));
-        var payload = JsonSerializer.Serialize(new
-        {
-            model,
-            stream = false,
-            messages = new[] { new { role = "user", content = $"{prompt}\nVIEWPORT: {viewport}\nCRITÉRIOS: {criteria}\nESTRUTURA DETECTADA: {structure}", images = new[] { Convert.ToBase64String(bytes) } } }
-        });
-        try
-        {
-            using var response = await client.PostAsync("http://127.0.0.1:11434/api/chat", new StringContent(payload, System.Text.Encoding.UTF8, "application/json"), timeout.Token);
-            var body = await response.Content.ReadAsStringAsync(timeout.Token);
-            if (!response.IsSuccessStatusCode)
-            {
-                var hint = body.Contains("not found", StringComparison.OrdinalIgnoreCase) ? $" Modelo visual '{model}' não está instalado no Ollama." : "";
-                return ToolResult.Fail(ToolNames.InspectVisual, $"Ollama visual respondeu HTTP {(int)response.StatusCode}.{hint}");
-            }
-            using var json = JsonDocument.Parse(body);
-            var report = json.RootElement.GetProperty("message").GetProperty("content").GetString() ?? "";
-            if (string.IsNullOrWhiteSpace(report)) return ToolResult.Fail(ToolNames.InspectVisual, "Modelo visual retornou relatório vazio.");
-            var normalizedVerdict = NormalizeVisualVerdict(report);
-            var actionable = HasActionableVisualProblem(report);
-            var verdict = normalizedVerdict == "approved" || !actionable ? "approved" : "review";
-            var highPriorityOpen = verdict == "review" && Regex.IsMatch(report, @"PRIORIDADE\s*:\s*(alta|high|crítica|critica)", RegexOptions.IgnoreCase);
-            return ToolResult.Ok(ToolNames.InspectVisual, report,
-                ("visual_inspection", "true"), ("visual_verdict", verdict), ("visual_actionable", actionable.ToString().ToLowerInvariant()), ("visual_high_priority_open", highPriorityOpen.ToString().ToLowerInvariant()), ("vision_model", model), ("screenshot_path", screenshot));
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        { return ToolResult.Fail(ToolNames.InspectVisual, "Tempo limite de 90s na inspeção visual."); }
-        catch (HttpRequestException ex)
-        { return ToolResult.Fail(ToolNames.InspectVisual, "Falha ao acessar o Ollama visual: " + ex.Message); }
+        if (string.IsNullOrWhiteSpace(screenshot) || !File.Exists(screenshot) || new FileInfo(screenshot).Length == 0)
+            return ToolResult.Fail(ToolNames.InspectVisual, "Screenshot válido é obrigatório para inspeção visual real.");
+        var request = new VisualInspectionRequest(screenshot, VisualViewport.Parse(viewport), objective,
+            criteria.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        var result = await visualInspector.InspectAsync(request, ct);
+        if (!result.IsRealEvidence)
+            return new(ToolNames.InspectVisual, false, "", result.Error ?? "Inspeção visual real indisponível.", VisualMetadata(result, screenshot));
+        var highPriority = result.Issues.Any(x => x.Severity is VisualSeverity.High or VisualSeverity.Critical);
+        var output = result.Verdict == VisualVerdict.Approved ? $"VISUAL APPROVED\nViewport: {result.Viewport}\nNenhum problema visual observável."
+            : "VISUAL REVISION REQUIRED\n" + string.Join("\n\n", result.Issues.Select(x => $"Viewport: {result.Viewport}\nProblem: {x.Problem}\nEvidence: {x.Evidence}\nLocation: {x.Location}\nSeverity: {x.Severity}\nSuggested action: {x.SuggestedAction}"));
+        return new(ToolNames.InspectVisual, true, output, null, VisualMetadata(result, screenshot, highPriority));
     }
+
+    static IReadOnlyDictionary<string, string> VisualMetadata(VisualInspectionResult result, string screenshot, bool highPriority = false) =>
+        new Dictionary<string, string>
+        {
+            ["visual_inspection"] = result.IsRealEvidence ? "true" : "false", ["visual_verdict"] = result.Verdict == VisualVerdict.Approved ? "approved" : result.Verdict == VisualVerdict.NeedsRevision ? "review" : "unavailable",
+            ["visual_high_priority_open"] = highPriority.ToString().ToLowerInvariant(), ["vision_provider"] = result.Provider, ["vision_model"] = result.Model ?? "unavailable",
+            ["screenshot_path"] = screenshot, ["screenshot_hash"] = result.ScreenshotHash, ["viewport"] = result.Viewport.ToString(), ["inspection_started_at"] = result.StartedAt.ToString("O"),
+            ["inspection_duration"] = result.Duration.TotalMilliseconds.ToString("0"), ["visual_issue_count"] = result.Issues.Count.ToString(), ["image_included"] = result.ImageIncluded.ToString().ToLowerInvariant()
+            , ["visual_issue_categories"] = string.Join(',', result.Issues.Select(x => x.Category).Distinct())
+        };
 
     internal static string NormalizeVisualVerdict(string report)
     {
