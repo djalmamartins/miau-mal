@@ -444,23 +444,59 @@ public partial class MainWindow : Window
         };
         ExecutionStateText.Text = EventStateLabel(ev.Type);
         UpdatePhaseChecklist(ev.Phase);
+        var narrative = ExecutionNarrative(ev);
+        var logTarget = string.IsNullOrWhiteSpace(ev.Target) ? "" : $" · {ev.Target}";
+        var logDetails = string.IsNullOrWhiteSpace(ev.Details) ? "" : $"\n{ev.Details}";
+        executionLog.Add($"{ev.Timestamp:HH:mm:ss}  [{EventCategory(ev.Type)}] {narrative}{logTarget}{logDetails}");
+        while (executionLog.Count > 500) executionLog.RemoveAt(0);
+
+        // Keep the visible feed focused on evidence useful to diagnose and correct a run.
+        // The copy button still exports the complete event stream above.
+        if (!ShouldShowInCorrectionLog(ev.Type)) return;
+
         var symbol = ev.Type is ExecutionEventType.RecoveryStarted or ExecutionEventType.PolicyRecovery ? "↻" : ev.Success switch { true => "✓", false => "✕", _ => "›" };
         var elapsed = ev.Duration is { } d ? $" · {d.TotalSeconds:0.0}s" : "";
-        var narrative = ExecutionNarrative(ev);
-        var title = $"{symbol} {narrative}{elapsed}" + (string.IsNullOrWhiteSpace(ev.Target) || ev.Type is ExecutionEventType.ModelRequestStarted or ExecutionEventType.ModelRequestCompleted ? "" : $"\n  {ev.Target}");
-        executionLog.Add($"{DateTime.Now:HH:mm:ss}  {title}" + (string.IsNullOrWhiteSpace(ev.Details) ? "" : $"\n{ev.Details}"));
-        while (executionLog.Count > 500) executionLog.RemoveAt(0);
+        var title = $"{symbol} {EventCategory(ev.Type)} · {narrative}{elapsed}" + (string.IsNullOrWhiteSpace(ev.Target) ? "" : $"\n  {ev.Target}");
+        var foreground = ev.Success == false || ev.Type is ExecutionEventType.JobFailed or ExecutionEventType.StagnationDetected or ExecutionEventType.BuildFailed or ExecutionEventType.TestsFailed
+            ? new SolidColorBrush(Color.Parse("#FF766F"))
+            : ev.Type is ExecutionEventType.RecoveryStarted or ExecutionEventType.PolicyRecovery or ExecutionEventType.RetryStarted
+                ? new SolidColorBrush(Color.Parse("#F2A900"))
+                : new SolidColorBrush(Color.Parse("#D7D7D7"));
         Control item = string.IsNullOrWhiteSpace(ev.Details)
-            ? new TextBlock { Text = title, TextWrapping = TextWrapping.Wrap, FontSize = 11 }
+            ? new TextBlock { Text = title, TextWrapping = TextWrapping.Wrap, FontSize = 11, Foreground = foreground }
             : new Expander
             {
-                Header = new TextBlock { Text = title, TextWrapping = TextWrapping.Wrap, FontSize = 11 },
+                Header = new TextBlock { Text = title, TextWrapping = TextWrapping.Wrap, FontSize = 11, Foreground = foreground },
                 Content = new TextBox { Text = ev.Details.Length > 8000 ? ev.Details[..8000] + "\n[preview truncado]" : ev.Details, IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.NoWrap, MaxHeight = 180, FontFamily = new FontFamily("Menlo,Consolas,monospace"), FontSize = 10 }
             };
         ActivityFeed.Children.Add(item);
         while (ActivityFeed.Children.Count > 120) ActivityFeed.Children.RemoveAt(0);
         Dispatcher.UIThread.Post(() => ActivityScroller.ScrollToEnd(), DispatcherPriority.Background);
     }
+
+    static bool ShouldShowInCorrectionLog(ExecutionEventType type) => type is
+        ExecutionEventType.JobStarted or ExecutionEventType.FileCreated or ExecutionEventType.FileChanged or
+        ExecutionEventType.ToolFailed or ExecutionEventType.CommandFailed or ExecutionEventType.BuildCompleted or
+        ExecutionEventType.BuildFailed or ExecutionEventType.TestsCompleted or ExecutionEventType.TestsFailed or
+        ExecutionEventType.DiffCompleted or ExecutionEventType.RetryStarted or ExecutionEventType.StagnationDetected or
+        ExecutionEventType.RecoveryStarted or ExecutionEventType.PolicyRecovery or ExecutionEventType.ModelTimeout or
+        ExecutionEventType.CriteriaUpdated or ExecutionEventType.ProgressRecorded or ExecutionEventType.JobCompleted or
+        ExecutionEventType.JobFailed or ExecutionEventType.JobCancelled;
+
+    static string EventCategory(ExecutionEventType type) => type switch
+    {
+        ExecutionEventType.FileCreated or ExecutionEventType.FileChanged => "ALTERAÇÃO",
+        ExecutionEventType.ToolFailed or ExecutionEventType.CommandFailed or ExecutionEventType.BuildFailed or
+            ExecutionEventType.TestsFailed or ExecutionEventType.ModelTimeout or ExecutionEventType.JobFailed => "ERRO",
+        ExecutionEventType.RetryStarted or ExecutionEventType.StagnationDetected or ExecutionEventType.RecoveryStarted or
+            ExecutionEventType.PolicyRecovery => "RECOVERY",
+        ExecutionEventType.BuildStarted or ExecutionEventType.BuildCompleted or ExecutionEventType.TestsStarted or
+            ExecutionEventType.TestsCompleted or ExecutionEventType.DiffStarted or ExecutionEventType.DiffCompleted => "VALIDAÇÃO",
+        ExecutionEventType.CriteriaUpdated or ExecutionEventType.ProgressRecorded => "EVIDÊNCIA",
+        ExecutionEventType.JobCompleted => "CONCLUÍDO",
+        ExecutionEventType.JobCancelled => "CANCELADO",
+        _ => "ANÁLISE"
+    };
 
     static string ExecutionNarrative(ExecutionEvent ev) => ev.Type switch
     {
@@ -686,17 +722,19 @@ public partial class MainWindow : Window
     {
         var label = new TextBlock { Text = "Revisar exemplo para aprendizado", Classes = { "muted" }, FontSize = 11 };
         var approve = new Button { Content = "Aprovar para treino", Padding = new Avalonia.Thickness(8, 3) };
+        var recovery = new Button { Content = "Aprovar recovery", Padding = new Avalonia.Thickness(8, 3) };
         var reject = new Button { Content = "Rejeitar", Padding = new Avalonia.Thickness(8, 3) };
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-        actions.Children.Add(approve); actions.Children.Add(reject);
+        actions.Children.Add(approve); actions.Children.Add(recovery); actions.Children.Add(reject);
         async Task Save(TrainingVerdict verdict)
         {
             await learning.SetVerdictAsync(taskId, verdict, null, CancellationToken.None);
-            approve.IsEnabled = false; reject.IsEnabled = false;
-            label.Text = verdict == TrainingVerdict.Approved ? "Exemplo aprovado para o dataset de treino." : "Exemplo rejeitado; será usado apenas como evidência de recuperação.";
+            approve.IsEnabled = false; recovery.IsEnabled = false; reject.IsEnabled = false;
+            label.Text = verdict switch { TrainingVerdict.Approved => "Exemplo positivo aprovado para treino.", TrainingVerdict.Recovery => "Episódio aprovado como exemplo de recovery.", _ => "Exemplo rejeitado e excluído dos exports de treino." };
             Activity(label.Text);
         }
         approve.Click += async (_, _) => await Save(TrainingVerdict.Approved);
+        recovery.Click += async (_, _) => await Save(TrainingVerdict.Recovery);
         reject.Click += async (_, _) => await Save(TrainingVerdict.Rejected);
         var panel = new StackPanel { Spacing = 5, Margin = new Avalonia.Thickness(0, -3, 0, 8) };
         panel.Children.Add(label); panel.Children.Add(actions); Thread.Children.Add(panel);
