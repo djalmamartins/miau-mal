@@ -2,21 +2,23 @@ using System.Diagnostics;
 
 namespace Miau.Desktop;
 
-public sealed record AgentRunResult(string Summary, JobPhase Phase, JobEvidence Evidence, string? TrainingRecordId = null);
+public sealed record AgentRunMetrics(int NoEffectiveChangeCount = 0, int RecoveryCount = 0, int EffectiveChanges = 0, bool HumanIntervention = false, int Actions = 0);
+public sealed record AgentRunResult(string Summary, JobPhase Phase, JobEvidence Evidence, string? TrainingRecordId = null, AgentRunMetrics? Metrics = null);
 
 public sealed class AgentOrchestrator
 {
-    readonly IModelAdapter model; readonly IToolExecutor tools; readonly IDatasetService dataset; readonly IPromptProvider prompts; readonly EditPolicy editPolicy; readonly FailureLearningService failures; readonly ExperienceHarvester harvester; readonly int maxSteps;
+    readonly IModelAdapter model; readonly IToolExecutor tools; readonly IDatasetService dataset; readonly IPromptProvider prompts; readonly EditPolicy editPolicy; readonly FailureLearningService failures; readonly RecoveryEpisodeService recoveryEpisodes; readonly ExperienceHarvester harvester; readonly int maxSteps;
     public AgentOrchestrator(IModelAdapter model, IToolExecutor tools, IDatasetService dataset, int maxSteps = 40, IPromptProvider? prompts = null)
-    { this.model = model; this.tools = tools; this.dataset = dataset; this.maxSteps = maxSteps; this.prompts = prompts ?? new VersionedPromptProvider(); editPolicy = new(); failures = new(); harvester = new(); }
+    { this.model = model; this.tools = tools; this.dataset = dataset; this.maxSteps = maxSteps; this.prompts = prompts ?? new VersionedPromptProvider(); editPolicy = new(); failures = new(); recoveryEpisodes = new(); harvester = new(); }
 
     public async Task<AgentRunResult> RunAsync(string workspace, string task, JobRequirements requirements, CancellationToken ct,
         Action<JobPhase, string>? progress = null, Action<ExecutionEvent>? eventSink = null, string origin = "interactive")
     {
-        var acceptance = AcceptancePlanner.Build(task, requirements); var engine = new JobEngine(requirements, acceptance: acceptance); var tracker = new ProgressTracker(); var visualRevisions = new VisualRevisionPolicy();
+        var acceptance = AcceptancePlanner.Build(task, requirements); var engine = new JobEngine(requirements, acceptance: acceptance); var tracker = new ProgressTracker(); var recoveryEngine = new RecoveryEngine(); var visualRevisions = new VisualRevisionPolicy();
         var workspaceBaseline = Directory.Exists(workspace) ? WorkspaceBaseline.Capture(workspace) : null;
         var trace = new List<TaskTraceEvent>(); var plan = new List<string>(); var replaceFailures = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase); var consecutiveTimeouts = 0; var turns = new List<ModelTurn> { new("user", task) }; var jobWatch = Stopwatch.StartNew();
         (MiauAction Action, ToolResult Result)? pendingRecovery = null;
+        (MiauAction Action, RecoveryDecision Decision)? pendingIneffectiveRecovery = null;
         void Emit(ExecutionEventType type, string description, string? target = null, TimeSpan? duration = null, bool? success = null, IReadOnlyDictionary<string, string>? metadata = null, string? details = null)
             => eventSink?.Invoke(new(DateTimeOffset.Now, type, engine.Phase, description, target, duration, success, metadata, details));
         engine.StateChanged += (phase, description) => { progress?.Invoke(phase, description); Emit(ExecutionEventType.PhaseChanged, description, phase.ToString(), success: true); };
@@ -57,7 +59,8 @@ public sealed class AgentOrchestrator
                 }
                 if (response.Type == "action")
                 {
-                    var stagnation = tracker.ObserveAction(response.Action!);
+                    var mutatingAction = response.Action!.Action is ToolNames.WriteFile or ToolNames.ReplaceInFile or ToolNames.ApplyPatch;
+                    var stagnation = mutatingAction ? new StagnationResult(false, 0, "", "") : tracker.ObserveAction(response.Action!);
                     if (stagnation.Detected)
                     {
                         Emit(ExecutionEventType.StagnationDetected, stagnation.Message, stagnation.Cycle, success: false, metadata: new Dictionary<string,string> { ["level"] = stagnation.Level.ToString() });
@@ -110,14 +113,17 @@ public sealed class AgentOrchestrator
                             Emit(ExecutionEventType.PolicyRecovery, "Critérios de aceitação pendentes", htmlPath, success: true, details: blocked.Error);
                             continue;
                         }
-                        foreach (var criterion in acceptance.Criteria.Where(x => x.Type == AcceptanceType.Structural))
-                            if (acceptance.Satisfy(criterion.Id, $"Estrutura comprovada em {htmlPath}"))
+                        var producedByTask = workspaceBaseline?.ChangesProducedNow(workspace).Any(x => x.Equals(htmlPath, StringComparison.OrdinalIgnoreCase) || x.Equals(cssPath, StringComparison.OrdinalIgnoreCase)) == true;
+                        foreach (var criterion in acceptance.Criteria.Where(x => x.Type is AcceptanceType.Structural or AcceptanceType.Modification))
+                            if (acceptance.Satisfy(criterion.Id, $"Estrutura comprovada em task delta: {htmlPath}", producedByTask))
                             {
                                 tracker.Record(ProgressKind.Criterion, criterion.Id);
                                 Emit(ExecutionEventType.ProgressRecorded, $"Novo critério satisfeito: {criterion.Id}", htmlPath, success: true);
                             }
                     }
                     var result = await ExecuteTool(workspace, response.Action!, requirements.ReadOnly, engine, trace, Emit, ct);
+                    var outcomeCriterion = acceptance.Criteria.FirstOrDefault(x => x.Required && x.Status == AcceptanceStatus.Pending)?.Id ?? "task-change";
+                    tracker.ObserveResult(response.Action, result, outcomeCriterion);
                     if (result.Success && response.Action.Action == ToolNames.InspectVisual && result.Metadata.GetValueOrDefault("visual_verdict") == "review")
                     {
                         var screenshot = response.Action.Arguments.GetValueOrDefault("screenshot_path", "");
@@ -127,6 +133,28 @@ public sealed class AgentOrchestrator
                     }
                     if (RecordProgress(tracker, response.Action, result, acceptance)) Emit(ExecutionEventType.ProgressRecorded, "Nova evidência de progresso", response.Action.Action, success: true, metadata: new Dictionary<string,string> { ["progress_version"] = tracker.Snapshot.Version.ToString() });
                     editPolicy.Observe(response.Action, result);
+                    if (result.Success && result.Metadata.GetValueOrDefault("effective_change") == "false")
+                    {
+                        var decision = recoveryEngine.ObserveNoEffectiveChange(task, response.Action, result, acceptance); pendingIneffectiveRecovery = (response.Action, decision);
+                        trace.Add(new(DateTimeOffset.Now, "recovery", "no_effective_change", false, decision.Context.ToPrompt()));
+                        Emit(ExecutionEventType.RecoveryStarted, $"Recovery NoEffectiveChange nível {decision.Level}", Target(response.Action), success: true,
+                            metadata: new Dictionary<string, string> { ["recovery_level"] = decision.Level.ToString(), ["no_effective_change"] = "true" }, details: decision.Message);
+                        if (decision.Stop)
+                        {
+                            var diagnostic = recoveryEngine.Diagnostic(task, acceptance); engine.Fail(diagnostic);
+                            await recoveryEpisodes.RecordAsync(workspace, task, response.Action, decision, null, "stopped", ct); break;
+                        }
+                        if (decision.Level >= 2) turns = [new("user", decision.Context.ToPrompt())];
+                        else { turns.Add(new("assistant", raw)); turns.Add(new("user", decision.Message)); }
+                        continue;
+                    }
+                    if (recoveryEngine.RecordEffectiveProgress(response.Action, result) && pendingIneffectiveRecovery is { } ineffective)
+                    {
+                        await recoveryEpisodes.RecordAsync(workspace, task, ineffective.Action, ineffective.Decision, response.Action.Action, "recovered", ct);
+                        trace.Add(new(DateTimeOffset.Now, "recovery_success", response.Action.Action, true, "Progresso efetivo após NoEffectiveChange."));
+                        Emit(ExecutionEventType.ProgressRecorded, "Recovery produziu alteração efetiva", Target(response.Action), success: true, metadata: new Dictionary<string,string> { ["recovery_success"] = "true" });
+                        pendingIneffectiveRecovery = null;
+                    }
                     if (!result.Success)
                     {
                         await failures.RecordAsync(workspace, response.Action, result, null, false, ct);
@@ -138,16 +166,6 @@ public sealed class AgentOrchestrator
                         pendingRecovery = null;
                     }
                     turns.Add(new("assistant", raw)); turns.Add(new("user", ToolObservation(result)));
-                    if (result.Success && requirements.RequiresVisualValidation && IsBroadVisualRewrite(task) && response.Action.Action is ToolNames.WriteFile or ToolNames.ApplyPatch)
-                    {
-                        var changedCount = engine.Evidence.FilesChanged.Count;
-                        if (changedCount < 2)
-                            turns.Add(new("user", $"ESCOPO VISUAL PENDENTE: esta é uma reformulação ampla e apenas {changedCount} arquivo(s) foi/foram alterado(s) nesta execução. Antes de renderizar, inspecione e implemente também os demais arquivos relevantes do site (por exemplo CSS e, quando necessário, JS). Não reduza o pedido a pequenas mudanças de texto."));
-                    }
-                    if (result.Success && requirements.RequiresVisualValidation && IsBroadVisualRewrite(task) && response.Action.Action == ToolNames.RenderPage && engine.Evidence.FilesChanged.Count < 2)
-                    {
-                        turns.Add(new("user", "RENDERIZAÇÃO PREMATURA: a página abriu, mas a reformulação ampla ainda não tem alterações estruturais suficientes. Continue implementando o site antes de solicitar inspeção visual."));
-                    }
                     if (!result.Success)
                     {
                         if (!engine.RecordFailure(result.Error!)) break;
@@ -168,7 +186,8 @@ public sealed class AgentOrchestrator
                 var final = response.Final!;
                 Emit(ExecutionEventType.CriteriaUpdated, $"Critérios {acceptance.SatisfiedCount}/{acceptance.RequiredCount} atendidos", success: acceptance.RequiredSatisfied);
                 var completionDelta = workspaceBaseline?.ChangesProducedNow(workspace) ?? engine.Evidence.FilesChanged.Where(x => x != "(patch)").ToArray();
-                var completion = CompletionGate.BeforeValidation(requirements, acceptance, completionDelta);
+                var significant = workspaceBaseline is null ? new SignificantChangeDecision(true, 0, "baseline indisponível") : SignificantChangeGate.Evaluate(task, workspace, workspaceBaseline, acceptance);
+                var completion = CompletionGate.BeforeValidation(requirements, acceptance, completionDelta, new(significant.Passed, recoveryEngine.HasBlockingStagnation, engine.HighPriorityVisualIssueOpen, engine.RenderVersion > 0 && engine.InspectedRenderVersion == engine.RenderVersion));
                 if (!completion.Allowed)
                 {
                     Emit(ExecutionEventType.PolicyRecovery, "Final prematuro rejeitado antes da validação", success: true, details: completion.Reason);
@@ -226,14 +245,6 @@ public sealed class AgentOrchestrator
                         }
                     }
                 }
-                if (requirements.RequiresVisualValidation && IsBroadVisualRewrite(task) && !HasBroadVisualEvidence(engine.Evidence))
-                {
-                    const string breadthReason = "A reformulação visual ampla ainda não tem evidência suficiente de implementação estrutural.";
-                    Emit(ExecutionEventType.PolicyRecovery, "Escopo visual ainda superficial", success: true, details: breadthReason);
-                    turns.Add(new("assistant", raw));
-                    turns.Add(new("user", $"FINAL RECUSADO: {breadthReason} Uma tarefa ampla não pode ser concluída com apenas uma alteração pontual. Reestruture os arquivos necessários (HTML/CSS/JS conforme o projeto), implemente as seções e responsividade pedidas, então renderize e inspecione novamente."));
-                    continue;
-                }
                 if (!engine.TryComplete(out var reason))
                 {
                     if (!engine.RecordFailure(reason)) break;
@@ -246,12 +257,12 @@ public sealed class AgentOrchestrator
                 var record = harvester.Harvest(workspace, model.ModelId, task, plan, trace, evidence, finalSummary, jobWatch.Elapsed, origin);
                 await dataset.SaveCompletedAsync(workspace, record, ct);
                 Emit(ExecutionEventType.JobCompleted, "Tarefa concluída", duration: null, success: true, metadata: new Dictionary<string, string> { ["files_changed"] = evidence.FilesChanged.Count.ToString() });
-                return new(finalSummary, engine.Phase, evidence, record.TaskId);
+                return new(finalSummary, engine.Phase, evidence, record.TaskId, new(recoveryEngine.NoEffectiveChangeCount, recoveryEngine.RecoveryCount, completionDelta.Count, false, trace.Count(x => x.Kind == "action_requested")));
             }
             if (!engine.IsTerminal) engine.Fail($"Limite de {maxSteps} etapas atingido.");
             Emit(ExecutionEventType.JobFailed, engine.LastError ?? "A tarefa falhou.", success: false);
             if (dataset is DatasetService concreteDataset) await concreteDataset.SaveRejectedAsync(task, model.ModelId, engine.LastError ?? "falha", ct);
-            return new(engine.LastError ?? "A tarefa falhou.", engine.Phase, engine.Evidence);
+            return new(engine.LastError ?? "A tarefa falhou.", engine.Phase, engine.Evidence, Metrics: new(recoveryEngine.NoEffectiveChangeCount, recoveryEngine.RecoveryCount, workspaceBaseline?.ChangesProducedNow(workspace).Count ?? 0, false, trace.Count(x => x.Kind == "action_requested")));
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         { engine.Cancel(); Emit(ExecutionEventType.JobCancelled, "Tarefa cancelada pelo usuário", success: false); throw; }

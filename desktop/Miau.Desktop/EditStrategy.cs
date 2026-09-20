@@ -45,3 +45,23 @@ public sealed class FailureLearningService
     }
     static string Classify(string error) => error.Contains("exatamente uma vez", StringComparison.OrdinalIgnoreCase) ? "replace_mismatch" : error.Contains("fora do workspace", StringComparison.OrdinalIgnoreCase) ? "path_scope" : "tool_error";
 }
+
+public sealed record RecoveryEpisode(string Id, DateTimeOffset Timestamp, string TaskFingerprint, string ProjectFingerprint,
+    string FailureType, string AttemptedStrategy, string FailedAction, string RelevantCriterion, string FailureEvidence,
+    int RecoveryLevel, string RecoveryStrategy, string? SuccessfulNextAction, string FinalOutcome, bool HumanApproval = false, double QualityScore = 0);
+
+public sealed class RecoveryEpisodeService
+{
+    readonly string directory;
+    public RecoveryEpisodeService(string? directory = null) => this.directory = directory ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MIAU", "dataset", "recovery-episodes");
+    public async Task RecordAsync(string workspace, string task, MiauAction failedAction, RecoveryDecision decision, string? successfulNextAction, string outcome, CancellationToken ct)
+    {
+        Directory.CreateDirectory(directory);
+        var item = new RecoveryEpisode(Guid.NewGuid().ToString("N"), DateTimeOffset.UtcNow,
+            Fingerprint(task), DatasetService.Fingerprint(workspace), "no_effective_change", failedAction.Action,
+            failedAction.Action, decision.Context.Subobjective, DatasetService.Redact(decision.Message), decision.Level,
+            DatasetService.Redact(decision.Context.ToPrompt()), successfulNextAction, outcome, false, outcome == "recovered" ? 80 : 20);
+        await File.AppendAllTextAsync(Path.Combine(directory, "miau-recovery-episodes-v1.jsonl"), System.Text.Json.JsonSerializer.Serialize(item) + Environment.NewLine, ct);
+    }
+    static string Fingerprint(string value) => ProgressTracker.ArtifactHash(System.Text.Encoding.UTF8.GetBytes(value))[..16];
+}

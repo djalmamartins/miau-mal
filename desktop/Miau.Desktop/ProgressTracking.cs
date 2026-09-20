@@ -13,6 +13,7 @@ public sealed class ProgressTracker
     readonly HashSet<string> evidence = new(StringComparer.OrdinalIgnoreCase);
     readonly List<ProgressEvent> events = [];
     readonly List<(string Action, int Version)> actions = [];
+    readonly List<string> outcomes = [];
     int level;
     public ProgressSnapshot Snapshot => new(events.Count, events.ToArray(), actions.TakeLast(12).Select(x => x.Action).ToArray(), Hash(string.Join('|', evidence.Order())));
 
@@ -42,7 +43,22 @@ public sealed class ProgressTracker
         return new(false, level, "", "");
     }
 
+    public StagnationResult ObserveResult(MiauAction action, ToolResult result, string criterion)
+    {
+        var fingerprint = OutcomeFingerprint(action, result, criterion); outcomes.Add(fingerprint); if (outcomes.Count > 12) outcomes.RemoveAt(0);
+        if (result.Metadata.GetValueOrDefault("effective_change") == "true") { outcomes.Clear(); level = 0; return new(false, 0, "", ""); }
+        if (result.Metadata.GetValueOrDefault("effective_change") != "false") return new(false, level, "", "");
+        var intent = "criterion=" + criterion.ToLowerInvariant();
+        var equivalent = outcomes.TakeLast(6).Count(x => x.Contains(intent, StringComparison.OrdinalIgnoreCase));
+        level = Math.Min(4, Math.Max(level, equivalent));
+        return equivalent >= 2
+            ? new(true, level, string.Join(" → ", outcomes.TakeLast(equivalent)), $"{equivalent} resultados equivalentes sem task delta para {criterion}.")
+            : new(false, level, "", "");
+    }
+
     public static string Fingerprint(MiauAction action) => action.Action + ":" + string.Join(';', action.Arguments.OrderBy(x => x.Key).Select(x => $"{x.Key}={Normalize(x.Value)}"));
+    public static string OutcomeFingerprint(MiauAction action, ToolResult result, string criterion) =>
+        $"action={action.Action};path={action.Arguments.GetValueOrDefault("path", result.Metadata.GetValueOrDefault("target_path", ""))};criterion={criterion};effective={result.Metadata.GetValueOrDefault("effective_change", "unknown")};old={result.Metadata.GetValueOrDefault("old_hash", "unknown")};proposed={result.Metadata.GetValueOrDefault("proposed_hash", "unknown")}";
     public static string ArtifactHash(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
     static string Hash(string value) => ArtifactHash(Encoding.UTF8.GetBytes(value));
     static string Normalize(string value) => string.Join(' ', value.Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));

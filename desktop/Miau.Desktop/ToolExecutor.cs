@@ -69,6 +69,7 @@ Retorne um relatório curto e objetivo em português com:
 4. responsividade aparente;
 5. problemas visuais concretos;
 6. melhorias prioritárias.
+Cada problema deve usar exatamente: PROBLEMA, EVIDÊNCIA, LOCAL, PRIORIDADE e AÇÃO_SUGERIDA.
 Não invente elementos que não aparecem na imagem. Termine com VEREDITO: APROVADO ou VEREDITO: REVISAR.
 """;
         using var client = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
@@ -95,8 +96,9 @@ Não invente elementos que não aparecem na imagem. Termine com VEREDITO: APROVA
             var normalizedVerdict = NormalizeVisualVerdict(report);
             var actionable = HasActionableVisualProblem(report);
             var verdict = normalizedVerdict == "approved" || !actionable ? "approved" : "review";
+            var highPriorityOpen = verdict == "review" && Regex.IsMatch(report, @"PRIORIDADE\s*:\s*(alta|high|crítica|critica)", RegexOptions.IgnoreCase);
             return ToolResult.Ok(ToolNames.InspectVisual, report,
-                ("visual_inspection", "true"), ("visual_verdict", verdict), ("visual_actionable", actionable.ToString().ToLowerInvariant()), ("vision_model", model), ("screenshot_path", screenshot));
+                ("visual_inspection", "true"), ("visual_verdict", verdict), ("visual_actionable", actionable.ToString().ToLowerInvariant()), ("visual_high_priority_open", highPriorityOpen.ToString().ToLowerInvariant()), ("vision_model", model), ("screenshot_path", screenshot));
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         { return ToolResult.Fail(ToolNames.InspectVisual, "Tempo limite de 90s na inspeção visual."); }
@@ -119,7 +121,7 @@ Não invente elementos que não aparecem na imagem. Termine com VEREDITO: APROVA
         return value.StartsWith("aprov", StringComparison.OrdinalIgnoreCase) ? "approved" : "review";
     }
 
-    public static bool HasActionableVisualProblem(string report) => report.Contains("PROBLEMA", StringComparison.OrdinalIgnoreCase) && report.Contains("EVIDÊNCIA", StringComparison.OrdinalIgnoreCase) && report.Contains("PRIORIDADE", StringComparison.OrdinalIgnoreCase);
+    public static bool HasActionableVisualProblem(string report) => report.Contains("PROBLEMA", StringComparison.OrdinalIgnoreCase) && report.Contains("EVIDÊNCIA", StringComparison.OrdinalIgnoreCase) && report.Contains("LOCAL", StringComparison.OrdinalIgnoreCase) && report.Contains("PRIORIDADE", StringComparison.OrdinalIgnoreCase) && (report.Contains("AÇÃO_SUGERIDA", StringComparison.OrdinalIgnoreCase) || report.Contains("SUGGESTED_ACTION", StringComparison.OrdinalIgnoreCase));
 
     static async Task<ToolResult> RenderPage(string workspace, string relative, int width, int height, CancellationToken ct)
     {
@@ -243,10 +245,12 @@ Não invente elementos que não aparecem na imagem. Termine com VEREDITO: APROVA
 
     static async Task<ToolResult> Write(string tool, string path, string content, string relative, CancellationToken ct)
     {
-        if (File.Exists(path) && await File.ReadAllTextAsync(path, ct) == content)
-            return ToolResult.Ok(tool, "NoEffectiveChange: a gravação proposta é idêntica ao conteúdo atual.", ("effective_change", "false"));
+        var current = File.Exists(path) ? await File.ReadAllTextAsync(path, ct) : null;
+        var oldHash = ContentHash(current ?? ""); var proposedHash = ContentHash(content);
+        if (current == content)
+            return ToolResult.Ok(tool, "NoEffectiveChange: a gravação proposta é idêntica ao conteúdo atual.", ("effective_change", "false"), ("target_path", relative), ("old_hash", oldHash), ("proposed_hash", proposedHash));
         Directory.CreateDirectory(Path.GetDirectoryName(path)!); await File.WriteAllTextAsync(path, content, ct);
-        return ToolResult.Ok(tool, $"Arquivo salvo: {relative}", ("changed_path", relative), ("effective_change", "true"));
+        return ToolResult.Ok(tool, $"Arquivo salvo: {relative}", ("changed_path", relative), ("effective_change", "true"), ("target_path", relative), ("old_hash", oldHash), ("proposed_hash", proposedHash));
     }
     static ToolResult Delete(string tool, string path, string relative)
     {
@@ -269,9 +273,10 @@ Não invente elementos que não aparecem na imagem. Termine com VEREDITO: APROVA
             throw new InvalidOperationException($"Edição recusada: old_text corresponde a {matches} trechos. Envie um trecho maior e único, ou use write_file para substituir o arquivo completo.");
 
         var first = current.IndexOf(oldText, StringComparison.Ordinal); var proposed = current[..first] + newText + current[(first + oldText.Length)..];
-        if (proposed == current) return ToolResult.Ok(tool, "NoEffectiveChange: a substituição não altera o arquivo.", ("effective_change", "false"));
+        var oldHash = ContentHash(current); var proposedHash = ContentHash(proposed);
+        if (proposed == current) return ToolResult.Ok(tool, "NoEffectiveChange: a substituição não altera o arquivo.", ("effective_change", "false"), ("target_path", relative), ("old_hash", oldHash), ("proposed_hash", proposedHash));
         await File.WriteAllTextAsync(path, proposed, ct);
-        return ToolResult.Ok(tool, $"Trecho alterado: {relative}", ("changed_path", relative), ("effective_change", "true"));
+        return ToolResult.Ok(tool, $"Trecho alterado: {relative}", ("changed_path", relative), ("effective_change", "true"), ("target_path", relative), ("old_hash", oldHash), ("proposed_hash", proposedHash));
     }
 
     static int CountOccurrences(string text, string value)
@@ -295,6 +300,7 @@ Não invente elementos que não aparecem na imagem. Termine com VEREDITO: APROVA
     }
     public static ToolResult PatchResult(string tool, string output, IReadOnlyCollection<string> delta) =>
         delta.Count == 0 ? ToolResult.Ok(tool, "NoEffectiveChange: o patch não alterou o workspace.", ("effective_change", "false")) : ToolResult.Ok(tool, output, ("changed_path", "(patch)"), ("effective_change", "true"));
+    static string ContentHash(string value) => ProgressTracker.ArtifactHash(System.Text.Encoding.UTF8.GetBytes(value));
     static async Task<ToolResult> GitDiff(string workspace, CancellationToken ct)
     {
         var diff = await Run(workspace, "git", ["diff", "--no-color"], ct);

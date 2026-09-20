@@ -61,7 +61,7 @@ public sealed class ReliabilityTests : IDisposable
     [Fact] public void ResponsiveVisualTaskRequiresDesktopAndMobile()
     {
         var req = new JobRequirements(true,false,true,true); var plan = AcceptancePlanner.Build("site responsivo", req); var job = new JobEngine(req, acceptance: plan); job.Start(); job.Observe(ToolResult.Ok(ToolNames.ReadFile,"",("inspected_path","index.html"))); job.Observe(ToolResult.Ok(ToolNames.WriteFile,"",("changed_path","index.html"))); job.Observe(ToolResult.Ok(ToolNames.GitDiff,"",("has_changes","true"))); job.Observe(ToolResult.Ok(ToolNames.Test,"",("validation","true"))); job.Observe(ToolResult.Ok(ToolNames.RenderPage,"",("visual_validation","true"),("viewport","1440x1200"))); job.Observe(ToolResult.Ok(ToolNames.InspectVisual,"",("visual_inspection","true"),("visual_verdict","approved")));
-        Assert.False(job.TryComplete(out var reason)); Assert.Contains("mobile", reason); plan.Satisfy("responsive-structure", "viewport + media"); job.Observe(ToolResult.Ok(ToolNames.RenderPage,"",("visual_validation","true"),("viewport","390x844"))); Assert.True(job.TryComplete(out _));
+        Assert.False(job.TryComplete(out var reason)); Assert.Contains("mobile", reason); plan.Satisfy("responsive-structure", "viewport + media"); job.Observe(ToolResult.Ok(ToolNames.RenderPage,"",("visual_validation","true"),("viewport","390x844"))); Assert.False(job.TryComplete(out var inspection)); Assert.Contains("mais recente", inspection); job.Observe(ToolResult.Ok(ToolNames.InspectVisual,"",("visual_inspection","true"),("visual_verdict","approved"))); Assert.True(job.TryComplete(out _));
     }
     [Fact] public void IdenticalScreenshotIsNotProgress()
     {
@@ -69,7 +69,7 @@ public sealed class ReliabilityTests : IDisposable
         Assert.True(policy.CanRevise("b","c1",out _)); Assert.False(policy.CanRevise("c","c1",out var limit)); Assert.Contains("Limite", limit);
     }
     [Fact] public void VisualReviewRequiresActionableEvidence()
-    { Assert.False(ToolExecutor.HasActionableVisualProblem("VEREDITO: REVISAR. Poderia melhorar.")); Assert.True(ToolExecutor.HasActionableVisualProblem("PROBLEMA: contraste. EVIDÊNCIA: botão. PRIORIDADE: alta. VEREDITO: REVISAR")); }
+    { Assert.False(ToolExecutor.HasActionableVisualProblem("VEREDITO: REVISAR. Poderia melhorar.")); Assert.True(ToolExecutor.HasActionableVisualProblem("PROBLEMA: contraste. EVIDÊNCIA: botão. LOCAL: hero. PRIORIDADE: alta. AÇÃO_SUGERIDA: aumentar contraste. VEREDITO: REVISAR")); }
 
     [Fact] public void BroadVisualTaskRequiresStructuralEvidence()
     {

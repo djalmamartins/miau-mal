@@ -5,7 +5,7 @@ public enum JobPhase { Received, Understanding, Inspecting, Planning, Executing,
 public sealed record JobRequirements(bool RequiresChange, bool ReadOnly, bool RequiresValidation = true, bool RequiresVisualValidation = false);
 public sealed record JobEvidence(IReadOnlyCollection<string> FilesInspected, IReadOnlyCollection<string> FilesChanged,
     bool HasGitDiff, bool ValidationRan, bool ValidationPassed, int Attempts, string? LastError, bool VisualValidationRan = false, bool VisualInspectionRan = false, bool VisualInspectionPassed = false,
-    IReadOnlyList<AcceptanceCriterion>? Criteria = null);
+    IReadOnlyList<AcceptanceCriterion>? Criteria = null, int RenderVersion = 0, int InspectedRenderVersion = 0, bool HighPriorityVisualIssueOpen = false);
 
 public sealed class JobEngine
 {
@@ -24,9 +24,12 @@ public sealed class JobEngine
     public bool VisualValidationRan { get; private set; }
     public bool VisualInspectionRan { get; private set; }
     public bool VisualInspectionPassed { get; private set; }
+    public int RenderVersion { get; private set; }
+    public int InspectedRenderVersion { get; private set; }
+    public bool HighPriorityVisualIssueOpen { get; private set; }
     public bool IsTerminal => Phase is JobPhase.Completed or JobPhase.Failed or JobPhase.Cancelled;
     public event Action<JobPhase, string>? StateChanged;
-    public JobEvidence Evidence => new(inspected.ToArray(), changed.ToArray(), HasGitDiff, ValidationRan, ValidationPassed, Attempts, LastError, VisualValidationRan, VisualInspectionRan, VisualInspectionPassed, Acceptance.Criteria);
+    public JobEvidence Evidence => new(inspected.ToArray(), changed.ToArray(), HasGitDiff, ValidationRan, ValidationPassed, Attempts, LastError, VisualValidationRan, VisualInspectionRan, VisualInspectionPassed, Acceptance.Criteria, RenderVersion, InspectedRenderVersion, HighPriorityVisualIssueOpen);
 
     public void Start() => Transition(JobPhase.Understanding, "Entendendo a tarefa");
     public void BeginInspection() => Transition(JobPhase.Inspecting, "Inspecionando o projeto");
@@ -37,8 +40,8 @@ public sealed class JobEngine
         if (result.Metadata.TryGetValue("inspected_path", out var inspectedPath) && !string.IsNullOrWhiteSpace(inspectedPath)) inspected.Add(inspectedPath);
         if (result.Metadata.TryGetValue("changed_path", out var changedPath) && !string.IsNullOrWhiteSpace(changedPath))
         { changed.Add(changedPath); Acceptance.Satisfy("change", changedPath); Transition(JobPhase.Executing, "Editando arquivos"); }
-        if (result.Metadata.TryGetValue("visual_validation", out var visual) && visual == "true") { VisualValidationRan = true; Acceptance.Satisfy(result.Metadata.GetValueOrDefault("viewport") == "390x844" ? "mobile-render" : "desktop-render", result.Metadata.GetValueOrDefault("screenshot_path", "render")); }
-        if (result.Metadata.TryGetValue("visual_inspection", out var visualInspected) && visualInspected == "true") { VisualInspectionRan = true; VisualInspectionPassed = result.Metadata.GetValueOrDefault("visual_verdict") == "approved"; if (VisualInspectionPassed) Acceptance.Satisfy("visual-inspection", result.Output); }
+        if (result.Metadata.TryGetValue("visual_validation", out var visual) && visual == "true") { VisualValidationRan = true; RenderVersion++; Acceptance.Satisfy(result.Metadata.GetValueOrDefault("viewport") == "390x844" ? "mobile-render" : "desktop-render", result.Metadata.GetValueOrDefault("screenshot_path", "render")); }
+        if (result.Metadata.TryGetValue("visual_inspection", out var visualInspected) && visualInspected == "true") { VisualInspectionRan = true; InspectedRenderVersion = RenderVersion; VisualInspectionPassed = result.Metadata.GetValueOrDefault("visual_verdict") == "approved"; HighPriorityVisualIssueOpen = result.Metadata.GetValueOrDefault("visual_high_priority_open") == "true"; if (VisualInspectionPassed && !HighPriorityVisualIssueOpen) Acceptance.Satisfy("visual-inspection", result.Output); }
         if (result.Tool == ToolNames.GitDiff)
         { HasGitDiff = result.Metadata.TryGetValue("has_changes", out var value) && value == "true"; Transition(JobPhase.Verifying, "Verificando alterações"); }
         if (result.Metadata.TryGetValue("validation", out var validation) && validation == "true")
@@ -63,7 +66,9 @@ public sealed class JobEngine
             if (Requirements.RequiresValidation && (!ValidationRan || !ValidationPassed)) { reason = "A alteração ainda não passou por build ou teste apropriado."; return false; }
             if (Requirements.RequiresVisualValidation && !VisualValidationRan) { reason = "A tarefa visual ainda não foi renderizada."; return false; }
             if (Requirements.RequiresVisualValidation && !VisualInspectionRan) { reason = "O screenshot ainda não foi analisado pelo inspetor visual."; return false; }
+            if (Requirements.RequiresVisualValidation && InspectedRenderVersion != RenderVersion) { reason = "A renderização mais recente ainda não passou por inspeção visual."; return false; }
             if (Requirements.RequiresVisualValidation && !VisualInspectionPassed) { reason = "O inspetor visual pediu revisão da interface; corrija os problemas e faça nova renderização e inspeção."; return false; }
+            if (Requirements.RequiresVisualValidation && HighPriorityVisualIssueOpen) { reason = "Existe problema visual de alta prioridade ainda aberto."; return false; }
         }
         if (!Acceptance.RequiredSatisfied) { reason = "Critérios obrigatórios pendentes: " + Acceptance.PendingSummary(); return false; }
         reason = ""; Transition(JobPhase.Completed, "Concluído"); return true;
